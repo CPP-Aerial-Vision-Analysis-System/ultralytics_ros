@@ -2,11 +2,12 @@
 <launch>
 
 <!-- adjustable args -->
-  <arg name="debug" default="false"/>
+  <arg name="debug" default="true"/>
   <arg name="device" default=""/>
   <arg name="classes" default=""/>
   <arg name="yolo_model" default="yolov8m.pt"/>
   <arg name="camera" default="true"/>
+  <arg name="gstreamer" default="false"/>
   
   <!-- most likely leave alone  -->
   
@@ -26,7 +27,7 @@
 
 <!-- do not touch below here unless you know what youre doing -->
 
-  <node name="tracker_node" pkg="ultralytics_ros" type="tracker_node.py" output="screen">
+  <node name="track_node" pkg="ultralytics_ros" type="track_node.py" output="screen">
     <param name="yolo_model" value="$(arg yolo_model)"/>
     <param name="input_topic" value="$(arg input_topic)"/>
     <param name="result_topic" value="$(arg result_topic)"/>
@@ -52,8 +53,15 @@
     <node pkg="video_cam" type="image_pub.py" name="image_pub" output="screen">
     <param name="input_topic" value="$(arg input_topic)"/>
     <param name="camera" value="$(arg camera)"/>
+    <param name="gstreamer" value="$(arg gstreamer)"/>
   </node>
 
   <node pkg="ultralytics_ros" type="yolo_result_sub.py" name="result_sub" output="screen">
   </node>
+
+    <!-- <include file="$(find mavros)/launch/px4.launch">
+      <arg name="fcu_url" value="serial:////dev/ttyACM0:115200" />
+      <arg name="gcs_url" value="" />
+      <arg name="tgt_system" value="1" />
+  </include> -->
 </launch>

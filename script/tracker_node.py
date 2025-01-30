@@ -25,6 +25,8 @@ from sensor_msgs.msg import Image
 from ultralytics import YOLO
 from vision_msgs.msg import Detection2D, Detection2DArray, ObjectHypothesisWithPose
 from ultralytics_ros.msg import YoloResult
+import time
+import os
 
 
 class TrackerNode:
@@ -47,7 +49,19 @@ class TrackerNode:
         self.result_boxes = rospy.get_param("~result_boxes", True)
         path = roslib.packages.get_pkg_dir("ultralytics_ros")
         self.model = YOLO(f"{path}/models/{yolo_model}")
+        print(self.model.names)
         self.model.fuse()
+
+        self.class_names = self.model.names
+
+        objects_to_detect_file = os.path.join(
+            os.path.dirname(__file__), "classes_to_detect.txt"
+        )
+        self.objects_to_detect = self.get_classes_from_file(objects_to_detect_file)
+        self.classes_to_detect = (
+            list(self.objects_to_detect.values()) if self.objects_to_detect else None
+        )
+
         self.sub = rospy.Subscriber(
             self.input_topic,
             Image,
@@ -62,9 +76,37 @@ class TrackerNode:
         self.bridge = cv_bridge.CvBridge()
         self.use_segmentation = yolo_model.endswith("-seg.pt")
 
+        self.last_time = time.time()
+
+    def get_classes_from_file(self, file_path):
+        if not os.path.exists(file_path):
+            rospy.logger(f"File not found. No objects will be detected.")
+            return None
+
+        try:
+            with open(file_path, "r") as file:
+                object_names = [line.strip() for line in file if line.strip()]
+        except Exception as e:
+            rospy.logerr(f"Error reading file")
+            return None
+
+        objects_to_detect = {}
+        for obj in object_names:
+            if obj in self.class_names.values():
+                class_id = list(self.class_names.values()).index(obj)
+                objects_to_detect[obj] = class_id
+            else:
+                rospy.logwarn(f"Object '{obj}' not found in YOLO model classes.")
+        return objects_to_detect if objects_to_detect else None
+
     def image_callback(self, msg):
         cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        current_time = time.time()  # Get the current time
+        elapsed_time = current_time - self.last_time  # Time taken since the last frame
+        self.last_time = current_time  # Update the last frame time
 
+        fps = 1 / elapsed_time if elapsed_time > 0 else 0  # Calculate FPS
+        rospy.loginfo(f"FPS: {fps:.2f}")  # Log the FPS
         results = self.model.track(
             source=cv_image,
             conf=self.conf_thres,
@@ -91,20 +133,33 @@ class TrackerNode:
 
     def create_detections_array(self, results):
         detections_msg = Detection2DArray()
+
+        # Extract bounding boxes, class IDs, and confidence scores
         bounding_box = results[0].boxes.xywh
         classes = results[0].boxes.cls
         confidence_score = results[0].boxes.conf
+
+        # Iterate through detections and filter by allowed classes
         for bbox, cls, conf in zip(bounding_box, classes, confidence_score):
-            detection = Detection2D()
-            detection.bbox.center.x = float(bbox[0])
-            detection.bbox.center.y = float(bbox[1])
-            detection.bbox.size_x = float(bbox[2])
-            detection.bbox.size_y = float(bbox[3])
-            hypothesis = ObjectHypothesisWithPose()
-            hypothesis.id = int(cls)
-            hypothesis.score = float(conf)
-            detection.results.append(hypothesis)
-            detections_msg.detections.append(detection)
+            class_id = int(cls)  # Class ID as an integer
+
+            # Only process detections that match allowed classes
+            if self.classes_to_detect and class_id in self.classes_to_detect:
+                detection = Detection2D()
+                detection.bbox.center.x = float(bbox[0])
+                detection.bbox.center.y = float(bbox[1])
+                detection.bbox.size_x = float(bbox[2])
+                detection.bbox.size_y = float(bbox[3])
+
+                # Create object hypothesis
+                hypothesis = ObjectHypothesisWithPose()
+                hypothesis.id = class_id
+                hypothesis.score = float(conf)
+
+                # Add hypothesis to detection
+                detection.results.append(hypothesis)
+                detections_msg.detections.append(detection)
+
         return detections_msg
 
     def create_result_image(self, results):
