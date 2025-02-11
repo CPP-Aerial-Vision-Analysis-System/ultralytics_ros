@@ -7,7 +7,7 @@
   <arg name="classes" default=""/>
   <arg name="yolo_model" default="yolov8m.pt"/>
   <arg name="camera" default="true"/>
-  <arg name="gstreamer" default="false"/>
+  <arg name="gstreamer" default="true"/>
   
   <!-- most likely leave alone  -->
   
