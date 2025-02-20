@@ -4,6 +4,7 @@ from ultralytics_ros.msg import YoloResult
 from vision_msgs.msg import Detection2D
 from mavros_msgs.srv import CommandLong, CommandLongRequest, CommandLongResponse
 import time, cv2
+from gps_mavros.srv import GetGPSData
 
 
 class YoloResultSubscriber:
@@ -18,6 +19,7 @@ class YoloResultSubscriber:
     def callback(self, msg):
         if msg.detections.detections:
             rospy.loginfo(f"{len(msg.detections.detections)} object(s) detected!")
+            self.request_drone_data()
             # self.activate_servo()
         else:
             rospy.loginfo("No objects detected.")
@@ -33,6 +35,17 @@ class YoloResultSubscriber:
                 rospy.loginfo(f"Servo on channel {channel} set to PWM {pwm_value}")
             else:
                 rospy.logerr("Failed to set servo.")
+        except rospy.ServiceException as e:
+            rospy.logerr(f"Service call failed: {e}")
+
+    def request_drone_data(self):
+        rospy.wait_for_service("/get_drone_data")
+        try:
+            get_data = rospy.ServiceProxy("/get_drone_data", GetGPSData)
+            response = get_data()
+            rospy.loginfo(
+                f"GPS: ({response.latitude}, {response.longitude}, {response.altitude}), Yaw: {response.yaw}°"
+            )
         except rospy.ServiceException as e:
             rospy.logerr(f"Service call failed: {e}")
 
