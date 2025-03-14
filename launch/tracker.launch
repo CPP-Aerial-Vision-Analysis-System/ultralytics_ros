@@ -2,7 +2,7 @@
 <launch>
 
 <!-- adjustable args -->
-  <arg name="debug" default="true"/>
+  <arg name="debug" default="false"/>
   <arg name="device" default=""/>
   <arg name="classes" default=""/>
   <arg name="yolo_model" default="yolov8m.pt"/>
@@ -57,9 +57,10 @@
   <node pkg="ultralytics_ros" type="yolo_result_sub.py" name="result_sub" output="screen">
   </node>
 
-    <!-- <include file="$(find mavros)/launch/px4.launch"> -->
-      <!-- <arg name="fcu_url" value="serial:////dev/ttyUSB0:57600" /> -->
-      <!-- <arg name="gcs_url" value="" /> -->
-      <!-- <arg name="tgt_system" value="1" /> -->
-  <!-- </include> -->
+  <node pkg="gps_mavros" type="gps.py" name="gps_node" output="screen">
+  </node>
+
+<node pkg="waypoint_mavros" type="waypoint.py" name="waypoint_node" output="screen">
+  </node>
+
 </launch>
