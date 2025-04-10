@@ -48,6 +48,7 @@ class TrackerNode:
         self.result_boxes = rospy.get_param("~result_boxes", True)
         path = roslib.packages.get_pkg_dir("ultralytics_ros")
         self.model = YOLO(f"{path}/models/{yolo_model}")
+        rospy.set_param("/yolo_class_names", str(self.model.names))
         
         self.model.fuse()
 
