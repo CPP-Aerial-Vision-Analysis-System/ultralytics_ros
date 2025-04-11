@@ -8,7 +8,7 @@ from mavros_msgs.srv import (
     CommandLongResponse,
     SetMode,
 )
-from mavros_msgs.msg import WaypointReached
+from mavros_msgs.msg import WaypointReached, VFR_HUD
 from geometry_msgs.msg import Pose2D
 import time, cv2, math, sys
 from gps_mavros.srv import GetGPSData, GetGPSDataResponse
@@ -55,6 +55,7 @@ class YoloResultSubscriber:
         rospy.Subscriber(
             "/mavros/mission/reached", WaypointReached, self.update_waypoint_reached
         )
+        rospy.Subscriber("/mavros/vfr_hud", VFR_HUD, self.speed_cb)
 
         # rospy.wait_for_service("/mavros/cmd/command")
         # self.command_service = rospy.ServiceProxy("/mavros/cmd/command", CommandLong)
@@ -84,6 +85,9 @@ class YoloResultSubscriber:
         #     rospy.sleep(15)  # Hold at waypoint for 15 seconds
         #     rospy.loginfo("Resuming flight path. Switching back to AUTO mode.")
         #     self.set_mode("AUTO")
+
+    def speed_cb(self, msg):
+        rospy.loginfo(msg.airspeed)
 
     def gps_calc(
         self, gps_lat, gps_lon, target_x, target_y, img_width, img_height, yaw_degrees
