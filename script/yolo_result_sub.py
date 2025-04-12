@@ -13,6 +13,7 @@ from geometry_msgs.msg import Pose2D
 import time, cv2, math, sys
 from gps_mavros.srv import GetGPSData, GetGPSDataResponse
 from waypoint_mavros.srv import AddWaypointResponse, AddWaypoint, AddWaypointRequest
+from waypoint_mavros.srv import DelWaypointResponse, DelWaypoint, DelWaypointRequest
 from collections import deque
 
 # from  camera_frame import WaypointManager
@@ -44,6 +45,10 @@ class Detected_Object_Waypoints:
         Returns the queue of detected objects with their GPS waypoints.
         """
         return self.detected_objects
+
+    def rotate_waypoints(self, rotate):
+            if self.detected_objects:
+                self.detected_objects.rotate(rotate)
 
 
 class YoloResultSubscriber:
@@ -178,6 +183,7 @@ class YoloResultSubscriber:
                         )
                         print(self.detected_object_waypoints.get_detected_objects())
                         # find out where the name of the object is stored
+                        self.delete_waypoint_data(2)
                     else:
                         rospy.logwarn("Waypoint not calculated")
         else:
@@ -208,10 +214,23 @@ class YoloResultSubscriber:
         except rospy.ServiceException as e:
             rospy.logerr(f"Service call failed: {e}")
 
+    def delete_waypoint_data(self, index):
+        rospy.loginfo("called waypoint deletion function")
+        rospy.wait_for_service("/DelWaypoint")
+        rospy.loginfo("deletion service loaded")
+        try:
+            del_data = rospy.ServiceProxy("/DelWaypoint", DelWaypoint)
+            request = DelWaypointRequest()
+            request.index = index
+            response = del_data(request)
+            return DelWaypointResponse(response.success)
+        except rospy.ServiceException as e:
+            rospy.logerr(f"Service call failed: {e}")
+
     def send_waypoint_data(self, lat, long, alt):
         rospy.loginfo("called waypoint function")
         rospy.wait_for_service("/AddWaypoint")
-        rospy.loginfo("service loaded")
+        rospy.loginfo("addition service loaded")
         try:
             send_data = rospy.ServiceProxy("/AddWaypoint", AddWaypoint)
             request = AddWaypointRequest()
