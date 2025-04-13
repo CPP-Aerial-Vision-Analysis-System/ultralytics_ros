@@ -17,6 +17,10 @@ from waypoint_mavros.srv import DelWaypointResponse, DelWaypoint, DelWaypointReq
 from collections import deque
 
 # from  camera_frame import WaypointManager
+RED = "\033[91m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+RESET = "\033[0m"
 
 
 class Detected_Object_Waypoints:
@@ -25,7 +29,7 @@ class Detected_Object_Waypoints:
             deque()
         )  # Queue to store detected objects and their GPS waypoints
 
-    def add_object(self, object_name, lat, long, alt):
+    def add_object(self, object_name, lat, long, alt, index):
         """
         Adds a detected object with its name and calculated GPS coordinates to the queue.
         """
@@ -34,6 +38,7 @@ class Detected_Object_Waypoints:
             "latitude": lat,
             "longitude": long,
             "alt": alt,
+            "index": index,
         }
         self.detected_objects.append(detected_object)
         rospy.loginfo(
@@ -46,9 +51,9 @@ class Detected_Object_Waypoints:
         """
         return self.detected_objects
 
-    def rotate_waypoints(self, rotate):
-            if self.detected_objects:
-                self.detected_objects.rotate(rotate)
+    def rotate_waypoints(self, rotate=-1):
+        if self.detected_objects:
+            self.detected_objects.rotate(rotate)
 
 
 class YoloResultSubscriber:
@@ -74,25 +79,47 @@ class YoloResultSubscriber:
         self.waypoint_reached = 0
         # self.object_waypoints = deque()
         self.detected_object_waypoints = Detected_Object_Waypoints()
+        self.lap = 1
 
         class_names = rospy.get_param("/yolo_class_names", None)
         while class_names is None:
-            rospy.logwarn("Waiting for /yolo_class_names to be set...")
-            rospy.sleep(0.5)
+            rospy.logwarn_throttle_identical(
+                5, "Waiting for /yolo_class_names to be set..."
+            )
             class_names = rospy.get_param("/yolo_class_names", None)
         self.class_names = eval(class_names)
 
+        num_waypoints = rospy.get_param("/num_waypoints", None)
+        while num_waypoints is None:
+            rospy.logwarn_throttle_identical(
+                5, "Waiting for /num_waypoints to be set..."
+            )
+            num_waypoints = rospy.get_param("/num_waypoints", None)
+        self.num_waypoints = int(num_waypoints)
+
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq
-        # if self.detected_object_waypoints and (msg.latitude, msg.longitude) == self.get_detected_objects:
-        #     rospy.loginfo("Object waypoint reached. Switching to LOITER mode.")
-        #     self.set_mode("LOITER")
-        #     rospy.sleep(15)  # Hold at waypoint for 15 seconds
-        #     rospy.loginfo("Resuming flight path. Switching back to AUTO mode.")
-        #     self.set_mode("AUTO")
+
+        if self.waypoint_reached == 1:
+            if self.lap >= 2:
+                q = self.detected_object_waypoints.get_detected_objects()
+
+                if self.lap > 2:
+                    index = q[0]["index"]
+                    self.delete_waypoint_data(index)
+                    self.detected_object_waypoints.rotate_waypoints()
+                    q = self.detected_object_waypoints.get_detected_objects()
+
+                lat = q[0]["latitude"]
+                long = q[0]["longitude"]
+                index = q[0]["index"]
+                self.send_waypoint_data(lat, long, 50, index)
+
+            self.lap += 1
+            rospy.loginfo(f"{GREEN}Lap Updated: {self.lap}{RESET}")
 
     def speed_cb(self, msg):
-        rospy.loginfo(msg.airspeed)
+        rospy.loginfo_throttle(10, msg.airspeed)
 
     def gps_calc(
         self, gps_lat, gps_lon, target_x, target_y, img_width, img_height, yaw_degrees
@@ -155,7 +182,7 @@ class YoloResultSubscriber:
 
             if self.run_detection_once == False:  # time.time() - self.lasttime > 10 :
                 # self.lasttime = time.time()
-                self.run_detection_once = True
+                # self.run_detection_once = True
                 for i in range(len(bbox_coords)):
                     # rospy.loginfo(bbox_coords[i].bbox.center)
                     # print(gps_response.latitude, gps_response.longitude, gps_response.altitude)
@@ -168,26 +195,31 @@ class YoloResultSubscriber:
                         640,
                         gps_response.yaw,
                     )
-                    rospy.loginfo("calling waypoint service")
-                    waypoint_response = self.send_waypoint_data(
-                        lat, long, gps_response.altitude
-                    )
+                    # rospy.loginfo("calling waypoint service")
+                    # waypoint_response = self.send_waypoint_data(
+                    #     lat, long, 50
+                    # )
                     # rospy.loginfo(f"Waypoint: {waypoint_response.success}")
-                    if waypoint_response.success == True:
+                    if not self.compare_object_names(
+                        self.class_names[bbox_coords[i].results[0].id]
+                    ):
                         rospy.loginfo(f"Calculated Position: LAT: {lat}, LONG:{long}")
                         self.detected_object_waypoints.add_object(
                             self.class_names[bbox_coords[i].results[0].id],
                             lat,
                             long,
                             50,
+                            self.waypoint_reached + 1,
                         )
-                        print(self.detected_object_waypoints.get_detected_objects())
-                        # find out where the name of the object is stored
-                        self.delete_waypoint_data(2)
-                    else:
-                        rospy.logwarn("Waypoint not calculated")
+                        rospy.loginfo(
+                            self.detected_object_waypoints.get_detected_objects()
+                        )
         else:
             rospy.loginfo("No objects detected.")
+
+    def compare_object_names(self, object_name):
+        q = self.detected_object_waypoints.get_detected_objects()
+        return any(item["name"] == object_name for item in q)
 
     def set_servo(self, channel, pwm_value):
         try:
@@ -227,7 +259,7 @@ class YoloResultSubscriber:
         except rospy.ServiceException as e:
             rospy.logerr(f"Service call failed: {e}")
 
-    def send_waypoint_data(self, lat, long, alt):
+    def send_waypoint_data(self, lat, long, alt, index):
         rospy.loginfo("called waypoint function")
         rospy.wait_for_service("/AddWaypoint")
         rospy.loginfo("addition service loaded")
@@ -237,6 +269,7 @@ class YoloResultSubscriber:
             request.altitude = alt
             request.longitude = long
             request.latitude = lat
+            request.index = index
             response = send_data(request)
             return AddWaypointResponse(response.success)
         except rospy.ServiceException as e:
