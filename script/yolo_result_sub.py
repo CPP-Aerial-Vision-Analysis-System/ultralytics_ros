@@ -15,12 +15,15 @@ from gps_mavros.srv import GetGPSData, GetGPSDataResponse
 from waypoint_mavros.srv import AddWaypointResponse, AddWaypoint, AddWaypointRequest
 from waypoint_mavros.srv import DelWaypointResponse, DelWaypoint, DelWaypointRequest
 from collections import deque
+import os, subprocess
 
 # from  camera_frame import WaypointManager
 RED = "\033[91m"
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
 RESET = "\033[0m"
+
+ALT = 15.24  # in meters (this is ~50 ft)
 
 
 class Detected_Object_Waypoints:
@@ -33,6 +36,9 @@ class Detected_Object_Waypoints:
         """
         Adds a detected object with its name and calculated GPS coordinates to the queue.
         """
+        if len(self.detected_objects) >= 4:
+            return
+
         detected_object = {
             "name": object_name,
             "latitude": lat,
@@ -79,7 +85,7 @@ class YoloResultSubscriber:
         self.waypoint_reached = 0
         # self.object_waypoints = deque()
         self.detected_object_waypoints = Detected_Object_Waypoints()
-        self.lap = 1
+        self.lap = 0
 
         class_names = rospy.get_param("/yolo_class_names", None)
         while class_names is None:
@@ -113,7 +119,7 @@ class YoloResultSubscriber:
                 lat = q[0]["latitude"]
                 long = q[0]["longitude"]
                 index = q[0]["index"]
-                self.send_waypoint_data(lat, long, 50, index)
+                self.send_waypoint_data(lat, long, ALT, index)
 
             self.lap += 1
             rospy.loginfo(f"{GREEN}Lap Updated: {self.lap}{RESET}")
