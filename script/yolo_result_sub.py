@@ -214,7 +214,7 @@ class YoloResultSubscriber:
                             self.class_names[bbox_coords[i].results[0].id],
                             lat,
                             long,
-                            50,
+                            ALT,
                             self.waypoint_reached + 1,
                         )
                         rospy.loginfo(
