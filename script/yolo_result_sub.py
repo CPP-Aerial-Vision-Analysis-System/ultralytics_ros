@@ -21,6 +21,7 @@ import os, subprocess
 RED = "\033[91m"
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
+BLUE = "\033[94m"
 RESET = "\033[0m"
 
 ALT = 15.24  # in meters (this is ~50 ft)
@@ -106,7 +107,8 @@ class YoloResultSubscriber:
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq
 
-        if self.waypoint_reached == 1:
+        if self.waypoint_reached == 2:
+            self.lap += 1
             if self.lap >= 2:
                 q = self.detected_object_waypoints.get_detected_objects()
 
@@ -121,11 +123,11 @@ class YoloResultSubscriber:
                 index = q[0]["index"]
                 self.send_waypoint_data(lat, long, ALT, index)
 
-            self.lap += 1
+
             rospy.loginfo(f"{GREEN}Lap Updated: {self.lap}{RESET}")
 
     def speed_cb(self, msg):
-        rospy.loginfo_throttle(10, msg.airspeed)
+        rospy.loginfo_throttle(10, f"{BLUE}Current airspeed: {msg.airspeed:.2f}{RESET}")
 
     def gps_calc(
         self, gps_lat, gps_lon, target_x, target_y, img_width, img_height, yaw_degrees
