@@ -7,6 +7,7 @@ from mavros_msgs.srv import (
     CommandLongRequest,
     CommandLongResponse,
     SetMode,
+    # WaypointSetCurrent,
 )
 from mavros_msgs.msg import WaypointReached, VFR_HUD
 from geometry_msgs.msg import Pose2D
@@ -109,6 +110,10 @@ class YoloResultSubscriber:
 
         if self.waypoint_reached == 2:
             self.lap += 1
+            q = self.detected_object_waypoints.get_detected_objects()
+            rospy.loginfo(
+                f"{BLUE}Queue Size: {len(q)}, First Object: {q[0]['name'] if q else 'None'}{RESET}"
+            )
             if self.lap >= 2:
                 q = self.detected_object_waypoints.get_detected_objects()
 
@@ -121,8 +126,9 @@ class YoloResultSubscriber:
                 lat = q[0]["latitude"]
                 long = q[0]["longitude"]
                 index = q[0]["index"]
+                self.change_mode("GUIDED")
                 self.send_waypoint_data(lat, long, ALT, index)
-
+                self.change_mode("AUTO")
 
             rospy.loginfo(f"{GREEN}Lap Updated: {self.lap}{RESET}")
 
@@ -185,8 +191,10 @@ class YoloResultSubscriber:
 
             # print(type(gps_response))
             bbox_coords = msg.detections.detections
-            print(gps_response.latitude, gps_response.longitude, gps_response.altitude)
-            print(f"Current wp_reached {self.waypoint_reached}")
+            rospy.logdebug(
+                gps_response.latitude, gps_response.longitude, gps_response.altitude
+            )
+            rospy.loginfo_throttle(5, f"Current wp_reached {self.waypoint_reached}")
 
             if self.run_detection_once == False:  # time.time() - self.lasttime > 10 :
                 # self.lasttime = time.time()
@@ -223,7 +231,7 @@ class YoloResultSubscriber:
                             self.detected_object_waypoints.get_detected_objects()
                         )
         else:
-            rospy.loginfo("No objects detected.")
+            rospy.loginfo_throttle(5, "No objects detected.")
 
     def compare_object_names(self, object_name):
         q = self.detected_object_waypoints.get_detected_objects()
@@ -289,7 +297,7 @@ class YoloResultSubscriber:
         time.sleep(1)
         self.set_servo(servo_channel, 1000)
 
-    def set_mode(self, mode):
+    def change_mode(self, mode):
         rospy.loginfo(f"Setting mode to {mode}...")
         response = self.set_mode(custom_mode=mode)
 
