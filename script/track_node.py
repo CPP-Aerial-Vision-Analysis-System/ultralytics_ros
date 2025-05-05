@@ -71,12 +71,12 @@ class TrackerNode:
     
     def image_callback(self, msg):
         cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
-        current_time = time.time()  # Get the current time
-        elapsed_time = current_time - self.last_time  # Time taken since the last frame
-        self.last_time = current_time  # Update the last frame time
+        # current_time = time.time()  # Get the current time
+        # elapsed_time = current_time - self.last_time  # Time taken since the last frame
+        # self.last_time = current_time  # Update the last frame time
 
-        fps = 1 / elapsed_time if elapsed_time > 0 else 0  # Calculate FPS
-        rospy.loginfo(f"FPS: {fps:.2f}")  # Log the FPS
+        # fps = 1 / elapsed_time if elapsed_time > 0 else 0  # Calculate FPS
+        # rospy.loginfo(f"FPS: {fps:.2f}")  # Log the FPS
         results = self.model.track(
             source=cv_image,
             conf=self.conf_thres,
