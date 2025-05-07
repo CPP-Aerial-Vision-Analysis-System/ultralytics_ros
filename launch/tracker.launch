@@ -60,7 +60,10 @@
   <node pkg="gps_mavros" type="gps.py" name="gps_node" output="screen">
   </node>
 
-<node pkg="waypoint_mavros" type="waypoint.py" name="waypoint_node" output="screen">
-  </node>
+  <node pkg="waypoint_mavros" type="waypoint.py" name="waypoint_node" output="screen">
+    </node>
+
+  <node pkg="image_mapping" type="mapping.py" name="mapping_node" output="screen">
+    </node>
 
 </launch>
