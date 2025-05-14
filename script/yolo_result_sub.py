@@ -25,7 +25,7 @@ YELLOW = "\033[93m"
 BLUE = "\033[94m"
 RESET = "\033[0m"
 
-ALT = 15.24  # in meters (this is ~50 ft)
+ALT = 16.8  # in meters (this is ~55 ft)
 
 
 class Detected_Object_Waypoints:
