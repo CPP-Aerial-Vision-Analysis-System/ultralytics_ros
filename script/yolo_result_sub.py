@@ -198,7 +198,7 @@ class YoloResultSubscriber:
 
             if self.run_detection_once == False:  # time.time() - self.lasttime > 10 :
                 # self.lasttime = time.time()
-                # self.run_detection_once = True
+                self.run_detection_once = True
                 for i in range(len(bbox_coords)):
                     # rospy.loginfo(bbox_coords[i].bbox.center)
                     # print(gps_response.latitude, gps_response.longitude, gps_response.altitude)
@@ -227,6 +227,11 @@ class YoloResultSubscriber:
                             ALT,
                             self.waypoint_reached + 1,
                         )
+                        self.change_mode("GUIDED")
+                        self.send_waypoint_data(
+                            lat, long, ALT, self.waypoint_reached + 1
+                        )
+                        self.change_mode("AUTO")
                         rospy.loginfo(
                             self.detected_object_waypoints.get_detected_objects()
                         )
