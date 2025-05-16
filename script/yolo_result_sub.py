@@ -9,7 +9,7 @@ from mavros_msgs.srv import (
     SetMode,
     # WaypointSetCurrent,
 )
-from mavros_msgs.msg import WaypointReached, VFR_HUD
+from mavros_msgs.msg import WaypointReached, VFR_HUD, StatusText
 from geometry_msgs.msg import Pose2D
 import time, cv2, math, sys
 from gps_mavros.srv import GetGPSData, GetGPSDataResponse
@@ -74,6 +74,11 @@ class YoloResultSubscriber:
             "/mavros/mission/reached", WaypointReached, self.update_waypoint_reached
         )
         rospy.Subscriber("/mavros/vfr_hud", VFR_HUD, self.speed_cb)
+        self.status_pub = rospy.Publisher(
+            "/mavros/statustext/send", StatusText, queue_size=10
+        )
+        self.last_status_time = 0
+        self.status_interval = 5  # seconds between GCS messages
 
         # rospy.wait_for_service("/mavros/cmd/command")
         # self.command_service = rospy.ServiceProxy("/mavros/cmd/command", CommandLong)
@@ -216,9 +221,8 @@ class YoloResultSubscriber:
                     #     lat, long, 50
                     # )
                     # rospy.loginfo(f"Waypoint: {waypoint_response.success}")
-                    if not self.compare_object_names(
-                        self.class_names[bbox_coords[i].results[0].id]
-                    ):
+                    detected_name = self.class_names[bbox_coords[i].results[0].id]
+                    if not self.compare_object_names(detected_name):
                         rospy.loginfo(f"Calculated Position: LAT: {lat}, LONG:{long}")
                         self.detected_object_waypoints.add_object(
                             self.class_names[bbox_coords[i].results[0].id],
@@ -227,6 +231,12 @@ class YoloResultSubscriber:
                             ALT,
                             self.waypoint_reached + 1,
                         )
+                        message = (
+                            f"'{detected_name}' at " f"LAT: {lat:.6f}, LON: {long:.6f}"
+                        )
+                        self.send_status(message)
+                        message = f"WP added at {self.waypoint_reached + 1}"
+                        self.send_status(message)
                         self.change_mode("GUIDED")
                         self.send_waypoint_data(
                             lat, long, ALT, self.waypoint_reached + 1
@@ -235,6 +245,7 @@ class YoloResultSubscriber:
                         rospy.loginfo(
                             self.detected_object_waypoints.get_detected_objects()
                         )
+
         else:
             rospy.loginfo_throttle(5, "No objects detected.")
 
@@ -310,6 +321,17 @@ class YoloResultSubscriber:
             rospy.loginfo(f"Mode changed to {mode}")
         else:
             rospy.logerr("Failed to change mode")
+
+    # TODO: fix throttle. function still works but throttling needs to be fixed
+    def send_status(self, text, throttle=False):
+        now = time.time()
+
+        if not throttle or (now - self.last_status_time > self.status_interval):
+            status_msg = StatusText()
+            status_msg.severity = 6  # 6 = NOTICE
+            status_msg.text = text
+            self.status_pub.publish(status_msg)
+            self.last_status_time = now
 
 
 if __name__ == "__main__":
