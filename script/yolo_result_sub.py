@@ -140,6 +140,23 @@ class YoloResultSubscriber:
     def speed_cb(self, msg):
         rospy.loginfo_throttle(10, f"{BLUE}Current airspeed: {msg.airspeed:.2f}{RESET}")
 
+    def get_rtl_index(self):
+        """
+        Returns the index of the RTL (Return To Launch) waypoint in the mission.
+        Assumes you have a way to get the current mission waypoints.
+        """
+        try:
+            rtl_index = rospy.get_param('/rtl_index', None)
+            if rtl_index:
+                rospy.loginfo(f"{GREEN}RTL index found at {rtl_index}{RESET}")
+                return int(rtl_index)
+            else:
+                rospy.logwarn("No RTL index found. will continue but will insert at next position")
+                return None
+        except rospy.ServiceException as e:
+            rospy.logerr(f"Param call failed: {e}")
+            return None
+
     def gps_calc(
         self, gps_lat, gps_lon, target_x, target_y, img_width, img_height, yaw_degrees
     ):
@@ -222,6 +239,9 @@ class YoloResultSubscriber:
                     # )
                     # rospy.loginfo(f"Waypoint: {waypoint_response.success}")
                     detected_name = self.class_names[bbox_coords[i].results[0].id]
+                    rtl_index = self.get_rtl_index()
+                    if rtl_index is None:
+                        rtl_index = self.waypoint_reached + 1
                     if not self.compare_object_names(detected_name):
                         rospy.loginfo(f"Calculated Position: LAT: {lat}, LONG:{long}")
                         self.detected_object_waypoints.add_object(
@@ -229,17 +249,17 @@ class YoloResultSubscriber:
                             lat,
                             long,
                             ALT,
-                            self.waypoint_reached + 1,
+                            rtl_index,
                         )
                         message = (
                             f"'{detected_name}' at " f"LAT: {lat:.6f}, LON: {long:.6f}"
                         )
                         self.send_status(message)
-                        message = f"WP added at {self.waypoint_reached + 1}"
+                        message = f"WP added at {rtl_index}"
                         self.send_status(message)
                         self.change_mode("GUIDED")
                         self.send_waypoint_data(
-                            lat, long, ALT, self.waypoint_reached + 1
+                            lat, long, ALT, rtl_index
                         )
                         self.change_mode("AUTO")
                         rospy.loginfo(
