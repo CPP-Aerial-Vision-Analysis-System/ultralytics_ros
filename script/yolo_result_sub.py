@@ -245,7 +245,7 @@ class YoloResultSubscriber:
                         bbox_coords[i].bbox.center.x,
                         bbox_coords[i].bbox.center.y,
                         640,
-                        480,
+                        640,
                         gps_response.yaw,
                     )
                     # rospy.loginfo("calling waypoint service")
