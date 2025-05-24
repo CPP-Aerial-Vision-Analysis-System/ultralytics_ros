@@ -17,6 +17,8 @@ from waypoint_mavros.srv import AddWaypointResponse, AddWaypoint, AddWaypointReq
 from waypoint_mavros.srv import DelWaypointResponse, DelWaypoint, DelWaypointRequest
 from collections import deque
 import os, subprocess
+from std_msgs.msg import Bool
+from sensor_msgs.msg import Image
 
 # from  camera_frame import WaypointManager
 RED = "\033[91m"
@@ -26,6 +28,10 @@ BLUE = "\033[94m"
 RESET = "\033[0m"
 
 ALT = 16.8  # in meters (this is ~55 ft)
+
+# both in degrees
+HFOV = 68.75
+VFOV = 53.13
 
 
 class Detected_Object_Waypoints:
@@ -77,6 +83,9 @@ class YoloResultSubscriber:
         self.status_pub = rospy.Publisher(
             "/mavros/statustext/send", StatusText, queue_size=10
         )
+        self.detected_photo_pub = rospy.Publisher(
+            "/camera/object_detected", Bool, queue_size=10
+        )
         self.last_status_time = 0
         self.status_interval = 5  # seconds between GCS messages
 
@@ -109,6 +118,10 @@ class YoloResultSubscriber:
             )
             num_waypoints = rospy.get_param("/num_waypoints", None)
         self.num_waypoints = int(num_waypoints)
+
+    def trigger_camera(self):
+        rospy.loginfo("Object Detected. Triggering Jetson-side camera")
+        self.detected_photo_pub.publish(Bool(data=True))
 
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq
@@ -146,12 +159,14 @@ class YoloResultSubscriber:
         Assumes you have a way to get the current mission waypoints.
         """
         try:
-            rtl_index = rospy.get_param('/rtl_index', None)
+            rtl_index = rospy.get_param("/rtl_index", None)
             if rtl_index:
                 rospy.loginfo(f"{GREEN}RTL index found at {rtl_index}{RESET}")
                 return int(rtl_index)
             else:
-                rospy.logwarn("No RTL index found. will continue but will insert at next position")
+                rospy.logwarn(
+                    "No RTL index found. will continue but will insert at next position"
+                )
                 return None
         except rospy.ServiceException as e:
             rospy.logerr(f"Param call failed: {e}")
@@ -165,7 +180,7 @@ class YoloResultSubscriber:
         """
 
         # Max GPS shift from center to edge (in degrees)
-        max_deg_shift = 0.00030
+        max_deg_shift = 0.00001373  # ~5 feet
 
         # Compute center of the image
         image_center_x = img_width / 2.0
@@ -230,7 +245,7 @@ class YoloResultSubscriber:
                         bbox_coords[i].bbox.center.x,
                         bbox_coords[i].bbox.center.y,
                         640,
-                        640,
+                        480,
                         gps_response.yaw,
                     )
                     # rospy.loginfo("calling waypoint service")
@@ -239,9 +254,10 @@ class YoloResultSubscriber:
                     # )
                     # rospy.loginfo(f"Waypoint: {waypoint_response.success}")
                     detected_name = self.class_names[bbox_coords[i].results[0].id]
-                    rtl_index = self.get_rtl_index()
+                    rtl_index = self.get_rtl_index()  # currently set to takeoff index
                     if rtl_index is None:
                         rtl_index = self.waypoint_reached + 1
+                    index = max(rtl_index + 1, self.waypoint_reached + 1)
                     if not self.compare_object_names(detected_name):
                         rospy.loginfo(f"Calculated Position: LAT: {lat}, LONG:{long}")
                         self.detected_object_waypoints.add_object(
@@ -249,18 +265,17 @@ class YoloResultSubscriber:
                             lat,
                             long,
                             ALT,
-                            rtl_index,
+                            index,
                         )
+                        self.trigger_camera()
                         message = (
                             f"'{detected_name}' at " f"LAT: {lat:.6f}, LON: {long:.6f}"
                         )
                         self.send_status(message)
-                        message = f"WP added at {rtl_index}"
+                        message = f"WP added at {index}"
                         self.send_status(message)
                         self.change_mode("GUIDED")
-                        self.send_waypoint_data(
-                            lat, long, ALT, rtl_index
-                        )
+                        self.send_waypoint_data(lat, long, ALT, index)
                         self.change_mode("AUTO")
                         rospy.loginfo(
                             self.detected_object_waypoints.get_detected_objects()
