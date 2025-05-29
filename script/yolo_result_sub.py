@@ -69,6 +69,9 @@ class Detected_Object_Waypoints:
         if self.detected_objects:
             self.detected_objects.rotate(rotate)
 
+    def clear_queue(self):
+        return self.detected_objects.clear()
+
 
 class YoloResultSubscriber:
 
@@ -86,6 +89,9 @@ class YoloResultSubscriber:
         self.detected_photo_pub = rospy.Publisher(
             "/camera/object_detected", Bool, queue_size=10
         )
+
+        rospy.Subscriber("/mavros/statustext/recv", StatusText, self.restart_callback)
+
         self.last_status_time = 0
         self.status_interval = 5  # seconds between GCS messages
 
@@ -119,6 +125,20 @@ class YoloResultSubscriber:
             num_waypoints = rospy.get_param("/num_waypoints", None)
         self.num_waypoints = int(num_waypoints)
 
+    def restart_callback(self, msg):
+        if "restart" in msg.text.lower():
+            message = f"Restarting code"
+            self.send_status(message)
+            self.waypoint_reached = 0
+            self.lap = 0
+            self.run_detection_once = False
+            self.detected_object_waypoints.clear_queue()
+            rospy.loginfo(f"Waypoint reached = {self.waypoint_reached}")
+            rospy.loginfo(f"Lap =  {self.lap}")
+            rospy.loginfo(f"Run Detection Once = {self.run_detection_once}")
+            q = self.detected_object_waypoints.get_detected_objects()
+            rospy.loginfo(f"Queue Size = {len(q)}, Objects in Queue: {q}")
+
     def trigger_camera(self):
         rospy.loginfo("Object Detected. Triggering Jetson-side camera")
         self.detected_photo_pub.publish(Bool(data=True))
@@ -140,10 +160,18 @@ class YoloResultSubscriber:
                     self.delete_waypoint_data(index)
                     self.detected_object_waypoints.rotate_waypoints()
                     q = self.detected_object_waypoints.get_detected_objects()
+                    # rospy.loginfo("Returning back to home")
+                    # self.change_mode("RTL")
+                    # return
 
                 lat = q[0]["latitude"]
                 long = q[0]["longitude"]
                 index = q[0]["index"]
+                name = q[0]["name"]
+                message = f"'{name}' at " f"LAT: {lat:.6f}, LON: {long:.6f}"
+                self.send_status(message)
+                message = f"WP added at {index}"
+                self.send_status(message)
                 self.change_mode("GUIDED")
                 self.send_waypoint_data(lat, long, ALT, index)
                 self.change_mode("AUTO")
@@ -235,7 +263,7 @@ class YoloResultSubscriber:
 
             if self.run_detection_once == False:  # time.time() - self.lasttime > 10 :
                 # self.lasttime = time.time()
-                self.run_detection_once = True
+                # self.run_detection_once = True
                 for i in range(len(bbox_coords)):
                     # rospy.loginfo(bbox_coords[i].bbox.center)
                     # print(gps_response.latitude, gps_response.longitude, gps_response.altitude)
@@ -268,15 +296,15 @@ class YoloResultSubscriber:
                             index,
                         )
                         self.trigger_camera()
-                        message = (
-                            f"'{detected_name}' at " f"LAT: {lat:.6f}, LON: {long:.6f}"
-                        )
-                        self.send_status(message)
-                        message = f"WP added at {index}"
-                        self.send_status(message)
-                        self.change_mode("GUIDED")
-                        self.send_waypoint_data(lat, long, ALT, index)
-                        self.change_mode("AUTO")
+                        # message = (
+                        #     f"'{detected_name}' at " f"LAT: {lat:.6f}, LON: {long:.6f}"
+                        # )
+                        # self.send_status(message)
+                        # message = f"WP added at {index}"
+                        # self.send_status(message)
+                        # self.change_mode("GUIDED")
+                        # self.send_waypoint_data(lat, long, ALT, index)
+                        # self.change_mode("AUTO")
                         rospy.loginfo(
                             self.detected_object_waypoints.get_detected_objects()
                         )
