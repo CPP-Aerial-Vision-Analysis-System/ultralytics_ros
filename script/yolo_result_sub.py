@@ -17,9 +17,10 @@ from gps_mavros.srv import GetGPSData, GetGPSDataResponse
 from waypoint_mavros.srv import AddWaypointResponse, AddWaypoint, AddWaypointRequest
 from waypoint_mavros.srv import DelWaypointResponse, DelWaypoint, DelWaypointRequest
 from collections import deque
-import os, subprocess
+import os, subprocess, rospkg
 from std_msgs.msg import Bool
 from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
 
 # from  camera_frame import WaypointManager
 RED = "\033[91m"
@@ -131,6 +132,24 @@ class YoloResultSubscriber:
             num_waypoints = rospy.get_param("/num_waypoints", None)
         self.num_waypoints = int(num_waypoints)
         rospy.loginfo(self.num_waypoints)
+
+        self.latest_yolo_image_msg = None
+        self.bridge = CvBridge()
+        self.bridgeObject = CvBridge()
+        rp = rospkg.RosPack()
+        rospy.Subscriber("/yolo_image", Image, self.yolo_image_callback)
+        self.detected_object_path = os.path.join(rp.get_path("video_cam"), "detected")
+
+        if not os.path.exists(self.detected_object_path):
+            os.makedirs(self.detected_object_path)
+
+        self.latest_image_msg = None
+
+    def sim_image_callback(self, msg):
+        self.latest_image_msg = msg
+
+    def yolo_image_callback(self, msg):
+        self.latest_yolo_image_msg = msg
 
     def restart_callback(self, msg):
         if "restart" in msg.text.lower():
@@ -304,6 +323,21 @@ class YoloResultSubscriber:
                             index,
                         )
                         self.trigger_camera()
+                        queue_length = len(
+                            self.detected_object_waypoints.get_detected_objects()
+                        )
+                        if self.latest_yolo_image_msg is not None and queue_length <= 4:
+                            timestamp = time.strftime("%Y%m%d-%H%M%S")
+                            yolo_image = self.bridge.imgmsg_to_cv2(
+                                self.latest_yolo_image_msg, desired_encoding="bgr8"
+                            )
+                            detected_filename = os.path.join(
+                                self.detected_object_path,
+                                f"detected_photo_{timestamp}.jpg",
+                            )
+                            cv2.imwrite(detected_filename, yolo_image)
+                            rospy.loginfo(f"Photo saved to {detected_filename}")
+
                         # message = (
                         #     f"'{detected_name}' at " f"LAT: {lat:.6f}, LON: {long:.6f}"
                         # )
