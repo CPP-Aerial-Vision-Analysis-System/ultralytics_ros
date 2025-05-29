@@ -10,6 +10,7 @@
   
   <!-- most likely leave alone  -->
   
+  <arg name="real_camera" default="false"/>
   <arg name="input_topic" default="/image_raw"/>
   <arg name="result_topic" default="/yolo_result"/>
   <arg name="result_image_topic" default="/yolo_image"/>
@@ -23,6 +24,8 @@
   <arg name="result_font" default="Arial.ttf"/>
   <arg name="result_labels" default="true"/>
   <arg name="result_boxes" default="true"/>
+  <arg name="imgsz" default="1280"/>
+  
 
 <!-- do not touch below here unless you know what youre doing -->
 
@@ -41,6 +44,7 @@
     <param name="result_font" value="$(arg result_font)"/>
     <param name="result_labels" value="$(arg result_labels)"/>
     <param name="result_boxes" value="$(arg result_boxes)"/>
+    <param name="imgsz" value="$(arg imgsz)"/>
     <rosparam param="classes" subst_value="true">$(arg classes)</rosparam>
     <rosparam param="device" subst_value="true">$(arg device)</rosparam>
   </node>
@@ -50,6 +54,7 @@
   </node>
 
     <node pkg="video_cam" type="image_pub.py" name="image_pub" output="screen">
+    <param name="real_camera" value="$(arg real_camera)"/>
     <param name="input_topic" value="$(arg input_topic)"/>
     <param name="camera" value="$(arg camera)"/>
   </node>
@@ -67,6 +72,9 @@
     </node>
 
   <node pkg="waypoint_mavros" type="killnode.py" name="kill_node" output="screen">
+    </node>
+
+  <node pkg="waypoint_mavros" type="plane_scenario.py" name="plane_node" output="screen">
     </node>
 
 </launch>
