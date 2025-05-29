@@ -7,7 +7,8 @@ from mavros_msgs.srv import (
     CommandLongRequest,
     CommandLongResponse,
     SetMode,
-    # WaypointSetCurrent,
+    WaypointSetCurrent,
+    WaypointSetCurrentRequest,
 )
 from mavros_msgs.msg import WaypointReached, VFR_HUD, StatusText
 from geometry_msgs.msg import Pose2D
@@ -92,6 +93,11 @@ class YoloResultSubscriber:
 
         rospy.Subscriber("/mavros/statustext/recv", StatusText, self.restart_callback)
 
+        rospy.wait_for_service("/mavros/mission/set_current")
+        self.set_wp_srv = rospy.ServiceProxy(
+            "/mavros/mission/set_current", WaypointSetCurrent
+        )
+
         self.last_status_time = 0
         self.status_interval = 5  # seconds between GCS messages
 
@@ -124,6 +130,7 @@ class YoloResultSubscriber:
             )
             num_waypoints = rospy.get_param("/num_waypoints", None)
         self.num_waypoints = int(num_waypoints)
+        rospy.loginfo(self.num_waypoints)
 
     def restart_callback(self, msg):
         if "restart" in msg.text.lower():
@@ -146,23 +153,23 @@ class YoloResultSubscriber:
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq
 
-        if self.waypoint_reached == 2:
+        if self.waypoint_reached == self.num_waypoints - 2:
             self.lap += 1
             q = self.detected_object_waypoints.get_detected_objects()
             rospy.loginfo(
                 f"{BLUE}Queue Size: {len(q)}, First Object: {q[0]['name'] if q else 'None'}{RESET}"
             )
-            if self.lap >= 2:
+            if self.waypoint_reached == self.num_waypoints - 2:
                 q = self.detected_object_waypoints.get_detected_objects()
 
-                if self.lap > 2:
-                    index = q[0]["index"]
-                    self.delete_waypoint_data(index)
-                    self.detected_object_waypoints.rotate_waypoints()
-                    q = self.detected_object_waypoints.get_detected_objects()
-                    # rospy.loginfo("Returning back to home")
-                    # self.change_mode("RTL")
-                    # return
+                # if self.lap > 2:
+                #     index = q[0]["index"]
+                #     self.delete_waypoint_data(index)
+                #     self.detected_object_waypoints.rotate_waypoints()
+                #     q = self.detected_object_waypoints.get_detected_objects()
+                #     # rospy.loginfo("Returning back to home")
+                #     # self.change_mode("RTL")
+                #     # return
 
                 lat = q[0]["latitude"]
                 long = q[0]["longitude"]
@@ -175,6 +182,7 @@ class YoloResultSubscriber:
                 self.change_mode("GUIDED")
                 self.send_waypoint_data(lat, long, ALT, index)
                 self.change_mode("AUTO")
+                self.set_mission_index(index)
 
             rospy.loginfo(f"{GREEN}Lap Updated: {self.lap}{RESET}")
 
@@ -273,7 +281,7 @@ class YoloResultSubscriber:
                         bbox_coords[i].bbox.center.x,
                         bbox_coords[i].bbox.center.y,
                         640,
-                        640,
+                        480,
                         gps_response.yaw,
                     )
                     # rospy.loginfo("calling waypoint service")
@@ -395,6 +403,16 @@ class YoloResultSubscriber:
             status_msg.text = text
             self.status_pub.publish(status_msg)
             self.last_status_time = now
+
+    def set_mission_index(self, index):
+        rospy.loginfo(f"Setting current mission waypoint to {index}")
+        req = WaypointSetCurrentRequest()
+        req.wp_seq = index
+        response = self.set_wp_srv(req)
+        if response.success:
+            rospy.loginfo(f"Mission set to waypoint {index}")
+        else:
+            rospy.logerr("Failed to set mission index.")
 
 
 if __name__ == "__main__":
