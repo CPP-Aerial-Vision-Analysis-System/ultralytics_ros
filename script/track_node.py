@@ -28,6 +28,7 @@ from ultralytics_ros.msg import YoloResult
 import time
 import os
 
+
 class TrackerNode:
     def __init__(self):
         yolo_model = rospy.get_param("~yolo_model", "yolov8n.pt")
@@ -40,6 +41,7 @@ class TrackerNode:
         self.classes = rospy.get_param("~classes", None)
         self.tracker = rospy.get_param("~tracker", "bytetrack.yaml")
         self.device = rospy.get_param("~device", None)
+        self.imgsz = rospy.get_param("~imgsz", 1280)
         self.result_conf = rospy.get_param("~result_conf", True)
         self.result_line_width = rospy.get_param("~result_line_width", None)
         self.result_font_size = rospy.get_param("~result_font_size", None)
@@ -49,8 +51,10 @@ class TrackerNode:
         path = roslib.packages.get_pkg_dir("ultralytics_ros")
         self.model = YOLO(f"{path}/models/{yolo_model}")
         rospy.set_param("/yolo_class_names", str(self.model.names))
-        
+
         self.model.fuse()
+
+        rospy.loginfo(f"imgsz set to: {self.imgsz}")
 
         self.sub = rospy.Subscriber(
             self.input_topic,
@@ -67,8 +71,7 @@ class TrackerNode:
         self.use_segmentation = yolo_model.endswith("-seg.pt")
 
         self.last_time = time.time()
-    
-    
+
     def image_callback(self, msg):
         cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
         # current_time = time.time()  # Get the current time
@@ -87,6 +90,7 @@ class TrackerNode:
             device=self.device,
             verbose=False,
             retina_masks=True,
+            imgsz=self.imgsz,
         )
 
         if results is not None:
@@ -103,7 +107,7 @@ class TrackerNode:
 
     def create_detections_array(self, results):
         detections_msg = Detection2DArray()
-        
+
         # Extract bounding boxes, class IDs, and confidence scores
         bounding_box = results[0].boxes.xywh
         classes = results[0].boxes.cls
@@ -114,19 +118,19 @@ class TrackerNode:
             class_id = int(cls)  # Class ID as an integer
 
             # Only process detections that match allowed classes
-            
+
             detection = Detection2D()
             detection.bbox.center.x = float(bbox[0])
             detection.bbox.center.y = float(bbox[1])
             detection.bbox.size_x = float(bbox[2])
             detection.bbox.size_y = float(bbox[3])
-                
-                # Create object hypothesis
+
+            # Create object hypothesis
             hypothesis = ObjectHypothesisWithPose()
             hypothesis.id = class_id
             hypothesis.score = float(conf)
-                
-                # Add hypothesis to detection
+
+            # Add hypothesis to detection
             detection.results.append(hypothesis)
             detections_msg.detections.append(detection)
 
