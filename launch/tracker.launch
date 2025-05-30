@@ -6,7 +6,7 @@
   <arg name="device" default=""/>
   <arg name="classes" default=""/>
   <arg name="yolo_model" default="yolov8m.pt"/>
-  <arg name="camera" default="true"/>
+  <arg name="real_camera" default="false"/>
   
   <!-- most likely leave alone  -->
   
@@ -51,7 +51,7 @@
 
     <node pkg="video_cam" type="image_pub.py" name="image_pub" output="screen">
     <param name="input_topic" value="$(arg input_topic)"/>
-    <param name="camera" value="$(arg camera)"/>
+    <param name="real_camera" value="$(arg real_camera)"/>
   </node>
 
   <node pkg="ultralytics_ros" type="yolo_result_sub.py" name="result_sub" output="screen">
