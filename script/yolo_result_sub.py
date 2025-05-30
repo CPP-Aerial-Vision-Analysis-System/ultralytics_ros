@@ -9,6 +9,7 @@ from mavros_msgs.srv import (
     SetMode,
     WaypointSetCurrent,
     WaypointSetCurrentRequest,
+    WaypointPull,
 )
 from mavros_msgs.msg import WaypointReached, VFR_HUD, StatusText
 from geometry_msgs.msg import Pose2D
@@ -16,6 +17,11 @@ import time, cv2, math, sys
 from gps_mavros.srv import GetGPSData, GetGPSDataResponse
 from waypoint_mavros.srv import AddWaypointResponse, AddWaypoint, AddWaypointRequest
 from waypoint_mavros.srv import DelWaypointResponse, DelWaypoint, DelWaypointRequest
+from waypoint_mavros.srv import (
+    UpdateMissionResponse,
+    UpdateMission,
+    UpdateMissionRequest,
+)
 from collections import deque
 import os, subprocess, rospkg
 from std_msgs.msg import Bool
@@ -98,6 +104,9 @@ class YoloResultSubscriber:
         self.set_wp_srv = rospy.ServiceProxy(
             "/mavros/mission/set_current", WaypointSetCurrent
         )
+        self.waypoint_pull_client = rospy.ServiceProxy(
+            "/mavros/mission/pull", WaypointPull
+        )
 
         self.last_status_time = 0
         self.status_interval = 5  # seconds between GCS messages
@@ -124,14 +133,7 @@ class YoloResultSubscriber:
             class_names = rospy.get_param("/yolo_class_names", None)
         self.class_names = eval(class_names)
 
-        num_waypoints = rospy.get_param("/num_waypoints", None)
-        while num_waypoints is None:
-            rospy.logwarn_throttle_identical(
-                5, "Waiting for /num_waypoints to be set..."
-            )
-            num_waypoints = rospy.get_param("/num_waypoints", None)
-        self.num_waypoints = int(num_waypoints)
-        rospy.loginfo(self.num_waypoints)
+        self.fetch_mission_indices()
 
         self.latest_yolo_image_msg = None
         self.bridge = CvBridge()
@@ -145,11 +147,63 @@ class YoloResultSubscriber:
 
         self.latest_image_msg = None
 
+    def fetch_mission_indices(self):
+        num_waypoints = rospy.get_param("/num_waypoints", None)
+        while num_waypoints is None:
+            rospy.logwarn_throttle_identical(
+                5, "Waiting for /num_waypoints to be set..."
+            )
+            num_waypoints = rospy.get_param("/num_waypoints", None)
+        self.num_waypoints = int(num_waypoints)
+        rospy.loginfo(self.num_waypoints)
+
+        takeoff_index = rospy.get_param("/takeoff_index", None)
+        while takeoff_index is None:
+            rospy.logwarn_throttle_identical(
+                5, "Waiting for /takeoff_index to be set..."
+            )
+            takeoff_index = rospy.get_param("/takeoff_index", None)
+        self.takeoff_index = int(takeoff_index)
+
+        rtl_index = rospy.get_param("/rtl_index", None)
+        while rtl_index is None:
+            rospy.logwarn_throttle_identical(5, "Waiting for /rtl_index to be set...")
+            rtl_index = rospy.get_param("/rtl_index", None)
+        self.rtl_index = int(rtl_index)
+
+        next_after_takeoff = rospy.get_param("/next_after_takeoff", None)
+        while next_after_takeoff is None:
+            rospy.logwarn_throttle_identical(
+                5, "Waiting for /next_after_takeoff to be set..."
+            )
+            next_after_takeoff = rospy.get_param("/next_after_takeoff", None)
+        self.next_after_takeoff = int(next_after_takeoff)
+
+        last_before_rtl = rospy.get_param("/last_before_rtl", None)
+        while last_before_rtl is None:
+            rospy.logwarn_throttle_identical(
+                5, "Waiting for /last_before_rtl to be set..."
+            )
+            last_before_rtl = rospy.get_param("/last_before_rtl", None)
+        self.last_before_rtl = int(last_before_rtl)
+
     def sim_image_callback(self, msg):
         self.latest_image_msg = msg
 
     def yolo_image_callback(self, msg):
         self.latest_yolo_image_msg = msg
+
+    def pull_waypoints(self):
+        """Update the mission on the fcu"""
+        rospy.wait_for_service("/mavros/mission/pull")
+        try:
+            response = self.waypoint_pull_client()
+            if response.success:
+                rospy.loginfo(f"Waypoint pull success: {response.success}")
+            else:
+                rospy.logwarn("Failed to pull waypoints.")
+        except rospy.ServiceException as e:
+            rospy.logerr(f"Service call failed: {e}")
 
     def restart_callback(self, msg):
         if "restart" in msg.text.lower():
@@ -164,6 +218,8 @@ class YoloResultSubscriber:
             rospy.loginfo(f"Run Detection Once = {self.run_detection_once}")
             q = self.detected_object_waypoints.get_detected_objects()
             rospy.loginfo(f"Queue Size = {len(q)}, Objects in Queue: {q}")
+            self.update_mission_data()
+            self.fetch_mission_indices()
 
     def trigger_camera(self):
         rospy.loginfo("Object Detected. Triggering Jetson-side camera")
@@ -172,60 +228,63 @@ class YoloResultSubscriber:
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq
 
-        if self.waypoint_reached == self.num_waypoints - 2:
+        if self.waypoint_reached == self.last_before_rtl:
             self.lap += 1
             q = self.detected_object_waypoints.get_detected_objects()
             rospy.loginfo(
                 f"{BLUE}Queue Size: {len(q)}, First Object: {q[0]['name'] if q else 'None'}{RESET}"
             )
-            if self.waypoint_reached == self.num_waypoints - 2:
-                q = self.detected_object_waypoints.get_detected_objects()
+            q = self.detected_object_waypoints.get_detected_objects()
 
-                # if self.lap > 2:
-                #     index = q[0]["index"]
-                #     self.delete_waypoint_data(index)
-                #     self.detected_object_waypoints.rotate_waypoints()
-                #     q = self.detected_object_waypoints.get_detected_objects()
-                #     # rospy.loginfo("Returning back to home")
-                #     # self.change_mode("RTL")
-                #     # return
-
-                lat = q[0]["latitude"]
-                long = q[0]["longitude"]
-                index = q[0]["index"]
-                name = q[0]["name"]
-                message = f"'{name}' at " f"LAT: {lat:.6f}, LON: {long:.6f}"
-                self.send_status(message)
-                message = f"WP added at {index}"
-                self.send_status(message)
-                self.change_mode("GUIDED")
-                self.send_waypoint_data(lat, long, ALT, index)
-                self.change_mode("AUTO")
-                self.set_mission_index(index)
+            # if self.lap > 2:
+            #     index = q[0]["index"]
+            #     self.delete_waypoint_data(index)
+            #     self.detected_object_waypoints.rotate_waypoints()
+            #     q = self.detected_object_waypoints.get_detected_objects()
+            #     # rospy.loginfo("Returning back to home")
+            #     # self.change_mode("RTL")
+            #     # return
+            if len(q) == 0:
+                rospy.logwarn("Queue Empty")
+                return
+            lat = q[0]["latitude"]
+            long = q[0]["longitude"]
+            index = q[0]["index"]
+            name = q[0]["name"]
+            message = f"'{name}' at " f"LAT: {lat:.6f}, LON: {long:.6f}"
+            self.send_status(message)
+            message = f"WP added at {index}"
+            self.send_status(message)
+            self.send_waypoint_data(lat, long, ALT, index)
+            self.change_mode("GUIDED")
+            self.last_before_rtl += 1
+            self.change_mode("AUTO")
+            self.set_mission_index(index)
 
             rospy.loginfo(f"{GREEN}Lap Updated: {self.lap}{RESET}")
 
     def speed_cb(self, msg):
         rospy.loginfo_throttle(10, f"{BLUE}Current airspeed: {msg.airspeed:.2f}{RESET}")
 
-    def get_rtl_index(self):
-        """
-        Returns the index of the RTL (Return To Launch) waypoint in the mission.
-        Assumes you have a way to get the current mission waypoints.
-        """
-        try:
-            rtl_index = rospy.get_param("/rtl_index", None)
-            if rtl_index:
-                rospy.loginfo(f"{GREEN}RTL index found at {rtl_index}{RESET}")
-                return int(rtl_index)
-            else:
-                rospy.logwarn(
-                    "No RTL index found. will continue but will insert at next position"
-                )
-                return None
-        except rospy.ServiceException as e:
-            rospy.logerr(f"Param call failed: {e}")
-            return None
+    # DEPRECATED. this node grabs on init
+    # def get_rtl_index(self):
+    #     """
+    #     Returns the index of the RTL (Return To Launch) waypoint in the mission.
+    #     Assumes you have a way to get the current mission waypoints.
+    #     """
+    #     try:
+    #         rtl_index = rospy.get_param("/rtl_index", None)
+    #         if rtl_index:
+    #             rospy.loginfo(f"{GREEN}RTL index found at {rtl_index}{RESET}")
+    #             return int(rtl_index)
+    #         else:
+    #             rospy.logwarn(
+    #                 "No RTL index found. will continue but will insert at next position"
+    #             )
+    #             return None
+    #     except rospy.ServiceException as e:
+    #         rospy.logerr(f"Param call failed: {e}")
+    #         return None
 
     def gps_calc(
         self, gps_lat, gps_lon, target_x, target_y, img_width, img_height, yaw_degrees
@@ -309,10 +368,7 @@ class YoloResultSubscriber:
                     # )
                     # rospy.loginfo(f"Waypoint: {waypoint_response.success}")
                     detected_name = self.class_names[bbox_coords[i].results[0].id]
-                    rtl_index = self.get_rtl_index()  # currently set to takeoff index
-                    if rtl_index is None:
-                        rtl_index = self.waypoint_reached + 1
-                    index = max(rtl_index + 1, self.waypoint_reached + 1)
+                    index = max(self.next_after_takeoff, self.waypoint_reached + 1)
                     if not self.compare_object_names(detected_name):
                         rospy.loginfo(f"Calculated Position: LAT: {lat}, LONG:{long}")
                         self.detected_object_waypoints.add_object(
@@ -322,11 +378,11 @@ class YoloResultSubscriber:
                             ALT,
                             index,
                         )
-                        self.trigger_camera()
+                        # self.trigger_camera()
                         queue_length = len(
                             self.detected_object_waypoints.get_detected_objects()
                         )
-                        if self.latest_yolo_image_msg is not None and queue_length <= 4:
+                        if self.latest_yolo_image_msg is not None and queue_length <= 2:
                             timestamp = time.strftime("%Y%m%d-%H%M%S")
                             yolo_image = self.bridge.imgmsg_to_cv2(
                                 self.latest_yolo_image_msg, desired_encoding="bgr8"
@@ -380,6 +436,16 @@ class YoloResultSubscriber:
             return GetGPSDataResponse(
                 response.latitude, response.longitude, response.altitude, response.yaw
             )
+        except rospy.ServiceException as e:
+            rospy.logerr(f"Service call failed: {e}")
+
+    def update_mission_data(self):
+        rospy.loginfo("called mission update function")
+        rospy.wait_for_service("/UpdateMission")
+        try:
+            get_data = rospy.ServiceProxy("/UpdateMission", UpdateMission)
+            response = get_data()
+            return UpdateMissionResponse(response.success)
         except rospy.ServiceException as e:
             rospy.logerr(f"Service call failed: {e}")
 
