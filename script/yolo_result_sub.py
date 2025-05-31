@@ -17,6 +17,7 @@ import time, cv2, math, sys
 from gps_mavros.srv import GetGPSData, GetGPSDataResponse
 from waypoint_mavros.srv import AddWaypointResponse, AddWaypoint, AddWaypointRequest
 from waypoint_mavros.srv import DelWaypointResponse, DelWaypoint, DelWaypointRequest
+from waypoint_mavros.srv import DoJump, DoJumpResponse, DoJumpRequest
 from waypoint_mavros.srv import (
     UpdateMissionResponse,
     UpdateMission,
@@ -186,6 +187,9 @@ class YoloResultSubscriber:
             )
             last_before_rtl = rospy.get_param("/last_before_rtl", None)
         self.last_before_rtl = int(last_before_rtl)
+    
+    rospy.loginfo(self.last_before_rtl)
+    rospy.loginfo(self.next_after_takeoff)
 
     def sim_image_callback(self, msg):
         self.latest_image_msg = msg
@@ -236,17 +240,17 @@ class YoloResultSubscriber:
             )
             q = self.detected_object_waypoints.get_detected_objects()
 
-            # if self.lap > 2:
-            #     index = q[0]["index"]
-            #     self.delete_waypoint_data(index)
-            #     self.detected_object_waypoints.rotate_waypoints()
-            #     q = self.detected_object_waypoints.get_detected_objects()
-            #     # rospy.loginfo("Returning back to home")
-            #     # self.change_mode("RTL")
-            #     # return
             if len(q) == 0:
                 rospy.logwarn("Queue Empty")
                 return
+
+            if self.lap >= 2:
+                index = q[0]["index"]
+                self.delete_waypoint_data(index)
+                self.detected_object_waypoints.rotate_waypoints()
+                q = self.detected_object_waypoints.get_detected_objects()
+                
+
             lat = q[0]["latitude"]
             long = q[0]["longitude"]
             index = q[0]["index"]
@@ -260,6 +264,9 @@ class YoloResultSubscriber:
             self.last_before_rtl += 1
             self.change_mode("AUTO")
             self.set_mission_index(index)
+            
+            if len(q) > 1 and self.lap == 1:
+                self.send_do_jump_data(self.next_after_takeoff, 1, self.last_before_rtl)
 
             rospy.loginfo(f"{GREEN}Lap Updated: {self.lap}{RESET}")
 
@@ -475,6 +482,21 @@ class YoloResultSubscriber:
             request.index = index
             response = send_data(request)
             return AddWaypointResponse(response.success)
+        except rospy.ServiceException as e:
+            rospy.logerr(f"Service call failed: {e}")
+    
+    def send_do_jump_data(self, target, rep, insert):
+        rospy.loginfo("called do jump function")
+        rospy.wait_for_service("/DoJump")
+        rospy.loginfo("do jump service loaded")
+        try:
+            send_data = rospy.ServiceProxy("/DoJump", DoJump)
+            request = DoJumpRequest()
+            request.target_index = target
+            request.repeat = rep
+            request.insert_index = insert
+            response = send_data(request)
+            return DoJumpResponse(response.success)
         except rospy.ServiceException as e:
             rospy.logerr(f"Service call failed: {e}")
 

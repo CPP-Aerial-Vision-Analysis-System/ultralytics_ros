@@ -38,7 +38,7 @@ class TrackerNode:
         self.conf_thres = rospy.get_param("~conf_thres", 0.25)
         self.iou_thres = rospy.get_param("~iou_thres", 0.45)
         self.max_det = rospy.get_param("~max_det", 300)
-        self.classes = rospy.get_param("~classes", [0])
+        self.classes = rospy.get_param("~classes", [0, 2, 3, 4, 5, 8, 11, 31, 25, 32, 34, 59, 38, 28, 30])
         self.tracker = rospy.get_param("~tracker", "bytetrack.yaml")
         self.device = rospy.get_param("~device", None)
         self.result_conf = rospy.get_param("~result_conf", True)
