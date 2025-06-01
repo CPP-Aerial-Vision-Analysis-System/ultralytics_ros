@@ -6,7 +6,7 @@
   <arg name="device" default=""/>
   <arg name="classes" default=""/>
   <arg name="yolo_model" default="yolov8m.pt"/>
-  <arg name="real_camera" default="false"/>
+  <arg name="real_camera" default="true"/>
   
   <!-- most likely leave alone  -->
   

@@ -15,6 +15,7 @@ from mavros_msgs.msg import WaypointReached, VFR_HUD, StatusText
 from geometry_msgs.msg import Pose2D
 import time, cv2, math, sys
 from gps_mavros.srv import GetGPSData, GetGPSDataResponse
+from sensor_msgs.msg import NavSatFix
 from waypoint_mavros.srv import AddWaypointResponse, AddWaypoint, AddWaypointRequest
 from waypoint_mavros.srv import DelWaypointResponse, DelWaypoint, DelWaypointRequest
 from waypoint_mavros.srv import DoJump, DoJumpResponse, DoJumpRequest
@@ -148,6 +149,43 @@ class YoloResultSubscriber:
 
         self.latest_image_msg = None
 
+        self.within_geofence = False
+
+        min_lat = min(-35.3633266067055, -35.3632959839791, -35.3626441546187, -35.3625829086365)  
+        max_lat = max(-35.3633266067055, -35.3632959839791, -35.3626441546187, -35.3625829086365) 
+
+        min_lon = min(149.164971113205, 149.1654753685, 149.165598750114, 149.164815545082)      
+        max_lon = max(149.164971113205, 149.1654753685, 149.165598750114, 149.164815545082)     
+
+        self.GEOFENCE = {
+        "min_lat": min_lat,
+        "max_lat": max_lat,
+        "min_lon": min_lon,
+        "max_lon": max_lon
+        } 
+
+        rospy.Subscriber("/mavros/global_position/global", NavSatFix, self.geofence_check)
+       
+    
+    def geofence_check(self,msg):
+        lat = msg.latitude
+        long = msg.longitude
+        self.within_geofence = (
+            self.GEOFENCE["min_lat"] <= lat <= self.GEOFENCE["max_lat"] and
+            self.GEOFENCE["min_lon"] <= long <= self.GEOFENCE["max_lon"] 
+        )
+
+        if self.within_geofence:
+            rospy.loginfo_throttle(10, f"{GREEN}Geofence status: Inside{RESET}")
+            message = f"Within GEOFENCE. Detecting objects"
+            self.send_status(message)
+            rospy.sleep(15)
+        else:
+            rospy.loginfo_throttle(10, f"{YELLOW}Geofence status: Outside{RESET}")
+            message = f"Not within GEOFENCE. NOT detecting objects"
+            self.send_status(message)
+            rospy.sleep(15)
+
     def fetch_mission_indices(self):
         num_waypoints = rospy.get_param("/num_waypoints", None)
         while num_waypoints is None:
@@ -188,8 +226,8 @@ class YoloResultSubscriber:
             last_before_rtl = rospy.get_param("/last_before_rtl", None)
         self.last_before_rtl = int(last_before_rtl)
     
-    rospy.loginfo(self.last_before_rtl)
-    rospy.loginfo(self.next_after_takeoff)
+    # rospy.loginfo(self.last_before_rtl)
+    # rospy.loginfo(self.next_after_takeoff)
 
     def sim_image_callback(self, msg):
         self.latest_image_msg = msg
@@ -227,48 +265,55 @@ class YoloResultSubscriber:
 
     def trigger_camera(self):
         rospy.loginfo("Object Detected. Triggering Jetson-side camera")
-        self.detected_photo_pub.publish(Bool(data=True))
+        q = self.detected_object_waypoints.get_detected_objects()
 
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq
+        q = self.detected_object_waypoints.get_detected_objects()
 
         if self.waypoint_reached == self.last_before_rtl:
             self.lap += 1
-            q = self.detected_object_waypoints.get_detected_objects()
-            rospy.loginfo(
-                f"{BLUE}Queue Size: {len(q)}, First Object: {q[0]['name'] if q else 'None'}{RESET}"
-            )
-            q = self.detected_object_waypoints.get_detected_objects()
+            if self.lap == 1 and len(q) >= 1:
+                self.last_before_rtl += 1
+                name = q[0]["name"]
+                lat = q[0]["latitude"]
+                long = q[0]["longitude"]
+                index = self.last_before_rtl
+                message = f"{name} INSERTED at index: {index}"
+                self.send_status(message)
+                self.change_mode("GUIDED")
+                self.send_waypoint_data(lat, long, ALT, index)
+                self.change_mode("AUTO")
+                self.set_mission_index(index)
+                self.last_before_rtl += 1
+                self.send_do_jump_data(self.next_after_takeoff, 1, self.last_before_rtl)
+                self.lap += 1
 
-            if len(q) == 0:
-                rospy.logwarn("Queue Empty")
-                return
-
-            if self.lap >= 2:
-                index = q[0]["index"]
+        if self.waypoint_reached == self.next_after_takeoff and self.lap >= 2:
+            if len(q) >= 2:
+                name = q[0]["name"]
+                self.last_before_rtl -= 1
+                index = self.last_before_rtl
+                message = f"{name} waypoint DELETED at index {index}"
+                self.send_status(message)
                 self.delete_waypoint_data(index)
                 self.detected_object_waypoints.rotate_waypoints()
                 q = self.detected_object_waypoints.get_detected_objects()
-                
+                name = q[0]["name"]
+                lat = q[0]["latitude"]
+                long = q[0]["longitude"]
+                index = q[0]["index"]
+                message = f"{name} INSERTED at index: {index}"
+                self.send_status(message)
+                self.change_mode("GUIDED")
+                self.send_waypoint_data(lat, long, ALT, index)
+                self.change_mode("AUTO")
+            else:
+                rospy.loginfo("No more objects. Returning to launch")
+                self.change_mode("RTL")
 
-            lat = q[0]["latitude"]
-            long = q[0]["longitude"]
-            index = q[0]["index"]
-            name = q[0]["name"]
-            message = f"'{name}' at " f"LAT: {lat:.6f}, LON: {long:.6f}"
-            self.send_status(message)
-            message = f"WP added at {index}"
-            self.send_status(message)
-            self.send_waypoint_data(lat, long, ALT, index)
-            self.change_mode("GUIDED")
-            self.last_before_rtl += 1
-            self.change_mode("AUTO")
-            self.set_mission_index(index)
-            
-            if len(q) > 1 and self.lap == 1:
-                self.send_do_jump_data(self.next_after_takeoff, 1, self.last_before_rtl)
+        rospy.loginfo(f"{GREEN}Lap Updated: {self.lap}{RESET}")
 
-            rospy.loginfo(f"{GREEN}Lap Updated: {self.lap}{RESET}")
 
     def speed_cb(self, msg):
         rospy.loginfo_throttle(10, f"{BLUE}Current airspeed: {msg.airspeed:.2f}{RESET}")
@@ -354,7 +399,7 @@ class YoloResultSubscriber:
             )
             rospy.loginfo_throttle(5, f"Current wp_reached {self.waypoint_reached}")
 
-            if self.run_detection_once == False:  # time.time() - self.lasttime > 10 :
+            if self.within_geofence:  # time.time() - self.lasttime > 10 :
                 # self.lasttime = time.time()
                 # self.run_detection_once = True
                 for i in range(len(bbox_coords)):
@@ -366,7 +411,7 @@ class YoloResultSubscriber:
                         bbox_coords[i].bbox.center.x,
                         bbox_coords[i].bbox.center.y,
                         640,
-                        480,
+                        640,
                         gps_response.yaw,
                     )
                     # rospy.loginfo("calling waypoint service")
