@@ -15,6 +15,7 @@ from mavros_msgs.msg import WaypointReached, VFR_HUD, StatusText
 from geometry_msgs.msg import Pose2D
 import time, cv2, math, sys
 from gps_mavros.srv import GetGPSData, GetGPSDataResponse
+from sensor_msgs.msg import NavSatFix
 from waypoint_mavros.srv import AddWaypointResponse, AddWaypoint, AddWaypointRequest
 from waypoint_mavros.srv import DelWaypointResponse, DelWaypoint, DelWaypointRequest
 from waypoint_mavros.srv import (
@@ -35,7 +36,7 @@ YELLOW = "\033[93m"
 BLUE = "\033[94m"
 RESET = "\033[0m"
 
-ALT = 16.8  # in meters (this is ~55 ft)
+ALT = 18  # in meters (this is ~55 ft)
 
 # both in degrees
 HFOV = 68.75
@@ -146,6 +147,58 @@ class YoloResultSubscriber:
             os.makedirs(self.detected_object_path)
 
         self.latest_image_msg = None
+
+        self.within_geofence = False
+
+        #Farm
+        # min_lat = min(34.0432765, 34.0429942, 34.0426230, 34.0429009)
+        # max_lat = max(34.0432765, 34.0429942, 34.0426230, 34.0429009)
+
+        # min_lon = min(-117.8124315, -117.8126916, -117.8120291, -117.8117099)  
+        # max_lon = max(-117.8124315, -117.8126916, -117.8120291, -117.8117099)   
+
+        #UAV_Lab
+        # min_lat = min(34.059302, 34.058841, 34.058697, 34.059199)
+        # max_lat = max(34.059302, 34.058841, 34.058697, 34.059199)
+
+        # min_lon = min(-117.820718, -117.821009, -117.820617, -117.620389)
+        # max_lon = max(-117.820718, -117.821009, -117.820617, -117.620389)
+
+        #Soccer Field
+        min_lat = min(34.0527216, 34.0524172, 34.0519594, 34.0523305)
+        max_lat = max(34.0527216, 34.0524172, 34.0519594, 34.0523305)
+
+        min_lon = min(-117.8191423, -117.8181526, -117.8183833, -117.8193676)
+        max_lon = max(-117.8191423, -117.8181526, -117.8183833, -117.8193676)
+
+        self.GEOFENCE = {
+        "min_lat": min_lat,
+        "max_lat": max_lat,
+        "min_lon": min_lon,
+        "max_lon": max_lon
+        } 
+
+        rospy.Subscriber("/mavros/global_position/global", NavSatFix, self.geofence_check)
+        
+       
+    def geofence_check(self,msg):
+        lat = msg.latitude
+        long = msg.longitude
+        rospy.loginfo(lat)
+        rospy.loginfo(long)
+        self.within_geofence = (
+            self.GEOFENCE["min_lat"] <= lat <= self.GEOFENCE["max_lat"] and
+            self.GEOFENCE["min_lon"] <= long <= self.GEOFENCE["max_lon"] 
+        )
+
+        if self.within_geofence:
+            rospy.loginfo_throttle(10, f"{GREEN}Geofence status: Inside{RESET}")
+            message = f"Within geofence. Detecting objects"
+            self.send_status(message)
+        else:
+            rospy.loginfo_throttle(10, f"{YELLOW}Geofence status: Outside{RESET}")
+            message = f"Not within geofence. Not detecting objects"
+            self.send_status(message)
 
     def fetch_mission_indices(self):
         num_waypoints = rospy.get_param("/num_waypoints", None)
@@ -347,7 +400,7 @@ class YoloResultSubscriber:
             )
             rospy.loginfo_throttle(5, f"Current wp_reached {self.waypoint_reached}")
 
-            if self.run_detection_once == False:  # time.time() - self.lasttime > 10 :
+            if self.within_geofence:  # time.time() - self.lasttime > 10 :
                 # self.lasttime = time.time()
                 # self.run_detection_once = True
                 for i in range(len(bbox_coords)):
@@ -370,6 +423,8 @@ class YoloResultSubscriber:
                     detected_name = self.class_names[bbox_coords[i].results[0].id]
                     index = max(self.next_after_takeoff, self.waypoint_reached + 1)
                     if not self.compare_object_names(detected_name):
+                        message = f"DETECTED {detected_name} at INDEX {index}"
+                        self.send_status(message)
                         rospy.loginfo(f"Calculated Position: LAT: {lat}, LONG:{long}")
                         self.detected_object_waypoints.add_object(
                             self.class_names[bbox_coords[i].results[0].id],
