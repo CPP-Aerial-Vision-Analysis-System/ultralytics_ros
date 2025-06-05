@@ -69,4 +69,13 @@
   <node pkg="waypoint_mavros" type="killnode.py" name="kill_node" output="screen">
     </node>
 
+  <node pkg="waypoint_mavros" type="plane_scenerio.py" name="plane_scenerio" output="screen">
+    </node>
+  
+  <node pkg="image_mapping" type="image_stitch.py" name="image_stitch" output="screen">
+    </node>
+  
+  <!-- <node pkg="ultralytics_ros" type="payload.py" name="payload" output="screen">
+    </node> -->
+
 </launch>
