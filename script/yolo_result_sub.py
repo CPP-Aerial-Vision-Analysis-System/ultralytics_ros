@@ -29,7 +29,7 @@ from std_msgs.msg import Bool
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 
-# from payload import ServoController
+from payload import ServoController
 
 # from  camera_frame import WaypointManager
 RED = "\033[91m"
@@ -38,7 +38,7 @@ YELLOW = "\033[93m"
 BLUE = "\033[94m"
 RESET = "\033[0m"
 
-ALT = 18  # in meters (this is ~55 ft)
+ALT = 20  # in meters (this is ~55 ft)
 
 # both in degrees
 HFOV = 68.75
@@ -97,7 +97,7 @@ class YoloResultSubscriber:
         self.takeoff_index = 0
         self.rtl_index = 0
 
-        #self.servo_controller = ServoController()
+        self.servo_controller = ServoController()
 
         rospy.Subscriber(
             "/mavros/mission/reached", WaypointReached, self.update_waypoint_reached
@@ -123,21 +123,13 @@ class YoloResultSubscriber:
         self.last_status_time = 0
         self.status_interval = 8  # seconds between GCS messages
 
-        # rospy.wait_for_service("/mavros/cmd/command")
-        # self.command_service = rospy.ServiceProxy("/mavros/cmd/command", CommandLong)
-        # self.waypoint_manager= WaypointManager()
-
+        
         rospy.wait_for_service("/mavros/set_mode")
         self.set_mode = rospy.ServiceProxy("/mavros/set_mode", SetMode)
 
         self.lasttime = time.time()
         self.run_detection_once = False
         self.waypoint_reached = 0
-        # self.last_before_rtl = 0
-        # self.next_after_takeoff = 0
-        # self.takeoff_index = 0
-        # self.rtl_index = 0
-       # self.detected_object_waypoints = Detected_Object_Waypoints()
         self.lap = 0
 
         class_names = rospy.get_param("/yolo_class_names", None)
@@ -165,17 +157,17 @@ class YoloResultSubscriber:
         self.within_geofence = False
 
         #Simulation Geofence
-        min_lat1 = min(-35.3621760591468, -35.3624954142957, -35.3624801027762, -35.3621563728292)
-        max_lat1 = max(-35.3621760591468, -35.3624954142957, -35.3624801027762, -35.3621563728292) 
+        # min_lat1 = min(-35.3633813, -35.3629898, -35.3629416, -35.3633222)
+        # max_lat1 = max(-35.3633813, -35.3629898, -35.3629416, -35.3633222)
 
-        min_lon1 = min(149.164753854275, 149.164826273918, 149.165351986885, 149.165397584438)
-        max_lon1 = max(149.164753854275, 149.164826273918, 149.165351986885, 149.165397584438)
+        # min_lon1 = min(149.1648799, 149.1648397, 149.1654968, 149.1655505)
+        # max_lon1 = max(149.1648799, 149.1648397, 149.1654968, 149.1655505)
 
-        min_lat2 = min(-35.3625807, -35.3630379, -35.3629351, -35.3626463)
-        max_lat2 = max(-35.3625807, -35.3630379, -35.3629351, -35.3626463)
+        # min_lat2 = min(-35.3622067, -35.3615461, -35.3614936, -35.3621629)
+        # max_lat2 = max(-35.3622067, -35.3615461, -35.3614936, -35.3621629)
 
-        min_lon2 = min(149.1649148, 149.1649175, 149.1655236, 149.1654727)
-        max_lon2 = max(149.1649148, 149.1649175, 149.1655236, 149.1654727)
+        # min_lon2 = min(149.1647565, 149.1646492, 149.1653734, 149.1654003)
+        # max_lon2 = max(149.1647565, 149.1646492, 149.1653734, 149.1654003)
 
         #Farm
         # min_lat = min(34.0432765, 34.0429942, 34.0426230, 34.0429009)
@@ -199,18 +191,18 @@ class YoloResultSubscriber:
         # max_lon = max(-117.8191423, -117.8181526, -117.8183833, -117.8193676)
 
         #Runway 1 Geofence (Maryland)
-        # min_lat1 = min(38.3153622, 38.3156463, 38.3159388, 38.3156653)
-        # max_lat1 = max(38.3153622, 38.3156463, 38.3159388, 38.3156653)
+        min_lat1 = min(38.3153622, 38.3156463, 38.3159388, 38.3156653)
+        max_lat1 = max(38.3153622, 38.3156463, 38.3159388, 38.3156653)
 
-        # min_lon1 = min(-76.5508904, -76.5525976, -76.5525077, -76.5507992)
-        # max_lon1 = max(-76.5508904, -76.5525976, -76.5525077, -76.5507992)  
+        min_lon1 = min(-76.5508904, -76.5525976, -76.5525077, -76.5507992)
+        max_lon1 = max(-76.5508904, -76.5525976, -76.5525077, -76.5507992)  
 
         #Runway 2 Geofence (Maryland)
-        # min_lat2 = min(38.3145083, 38.3147814, 38.3144952, 38.3141858)
-        # max_lat2 = max(38.3145083, 38.3147814, 38.3144952, 38.3141858)
+        min_lat2 = min(38.3145083, 38.3147814, 38.3144952, 38.3141858)
+        max_lat2 = max(38.3145083, 38.3147814, 38.3144952, 38.3141858)
 
-        # min_lon2 = min(-76.5458706, -76.5457834, -76.5440708, -76.5441687)
-        # max_lon2 = max(-76.5458706, -76.5457834, -76.5440708, -76.5441687)
+        min_lon2 = min(-76.5458706, -76.5457834, -76.5440708, -76.5441687)
+        max_lon2 = max(-76.5458706, -76.5457834, -76.5440708, -76.5441687)
 
         self.GEOFENCE1 = {
         "min_lat1": min_lat1,
@@ -357,37 +349,16 @@ class YoloResultSubscriber:
             rospy.loginfo(f"{GREEN}Object waypoint reached{RESET}")
             message = f"Object waypoint reached. Payload dropping"
             self.send_status(message, False)
-            # self.servo_controller.execute()
             self.change_mode("GUIDED")
             self.delete_waypoint_data(self.rtl_index + 1)
             self.change_mode("AUTO")
-
             self.change_mode("LOITER")
+            self.servo_controller.run_sequence()
             
         rospy.loginfo(f"{GREEN}Lap Updated: {self.lap}{RESET}")
 
     def speed_cb(self, msg):
         rospy.loginfo_throttle(10, f"{BLUE}Current airspeed: {msg.airspeed:.2f}{RESET}")
-
-    # DEPRECATED. this node grabs on init
-    # def get_rtl_index(self):
-    #     """
-    #     Returns the index of the RTL (Return To Launch) waypoint in the mission.
-    #     Assumes you have a way to get the current mission waypoints.
-    #     """
-    #     try:
-    #         rtl_index = rospy.get_param("/rtl_index", None)
-    #         if rtl_index:
-    #             rospy.loginfo(f"{GREEN}RTL index found at {rtl_index}{RESET}")
-    #             return int(rtl_index)
-    #         else:
-    #             rospy.logwarn(
-    #                 "No RTL index found. will continue but will insert at next position"
-    #             )
-    #             return None
-    #     except rospy.ServiceException as e:
-    #         rospy.logerr(f"Param call failed: {e}")
-    #         return None
 
     def gps_calc(
         self, gps_lat, gps_lon, target_x, target_y, img_width, img_height, yaw_degrees
