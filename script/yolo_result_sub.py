@@ -96,6 +96,7 @@ class YoloResultSubscriber:
         self.next_after_takeoff = 0
         self.takeoff_index = 0
         self.rtl_index = 0
+        self.lap = 0
 
         self.servo_controller = ServoController()
 
@@ -130,8 +131,7 @@ class YoloResultSubscriber:
         self.lasttime = time.time()
         self.run_detection_once = False
         self.waypoint_reached = 0
-        self.lap = 0
-
+        
         class_names = rospy.get_param("/yolo_class_names", None)
         while class_names is None:
             rospy.logwarn_throttle_identical(
@@ -190,7 +190,7 @@ class YoloResultSubscriber:
         # min_lon = min(-117.8191423, -117.8181526, -117.8183833, -117.8193676)
         # max_lon = max(-117.8191423, -117.8181526, -117.8183833, -117.8193676)
 
-        #Runway 1 Geofence (Maryland)
+        # Runway 1 Geofence (Maryland)
         min_lat1 = min(38.3153622, 38.3156463, 38.3159388, 38.3156653)
         max_lat1 = max(38.3153622, 38.3156463, 38.3159388, 38.3156653)
 
@@ -352,8 +352,10 @@ class YoloResultSubscriber:
             self.change_mode("GUIDED")
             self.delete_waypoint_data(self.rtl_index + 1)
             self.change_mode("AUTO")
-            self.change_mode("LOITER")
+            self.change_mode("GUIDED")
             self.servo_controller.run_sequence()
+            rospy.loginfo("Stopping detection...")
+            self.subscriber.unregister()
             
         rospy.loginfo(f"{GREEN}Lap Updated: {self.lap}{RESET}")
 
