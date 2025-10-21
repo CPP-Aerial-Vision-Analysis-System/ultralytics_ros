@@ -51,6 +51,7 @@ class TrackerNode(Node):
         path = get_package_share_directory("ultralytics_ros")
         yolo_model = self.get_parameter("yolo_model").get_parameter_value().string_value
         self.model = YOLO(f"{path}/models/{yolo_model}")
+        self.declare_parameter("yolo_class_names", str(self.model.names))
         self.model.fuse()
 
         self.bridge = cv_bridge.CvBridge()
