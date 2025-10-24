@@ -54,8 +54,8 @@ class ServoController(Node):
         self.drop_distance_ft = 0.0
         self.alt = 0
 
-        rospy.Subscriber("/mavros/global_position/rel_alt", Float64, self.altitude_callback)
-        rospy.loginfo(f"✅ GPIO initialized. Monitoring pin {LIMIT_SWITCH_PIN} for limit switch.")
+        self.create_subscription("/mavros/global_position/rel_alt", Float64, self.altitude_callback)
+        self.get_logger().info(f"✅ GPIO initialized. Monitoring pin {LIMIT_SWITCH_PIN} for limit switch.")
 
     def wait_for_services(self):
         clients = [
