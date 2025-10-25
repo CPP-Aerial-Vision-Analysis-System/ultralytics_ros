@@ -55,4 +55,6 @@
 
   <!-- <node pkg="video_cam" exec="image_pub" output="screen"></node> -->
 
+  <node pkg="ultralytics_ros" exec="yolo_result_sub.py" output="screen"></node>
+
 </launch>
