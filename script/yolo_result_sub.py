@@ -10,7 +10,7 @@ from sensor_msgs.msg import NavSatFix, Image
 from std_msgs.msg import Bool
 from rcl_interfaces.srv import GetParameters
 
-# from cv_bridge import CvBridge        | check if this is in ros2
+from cv_bridge import CvBridge        | check if this is in ros2
 
 from interfaces.srv import GetGPSData, AddWaypoint, DelWaypoint
 from wp_sender.wp_sender.parameter import ParameterManager
@@ -130,8 +130,8 @@ class YoloResultSubscriber(Node):
         self.fetch_mission_indices()
 
         self.latest_yolo_image_msg = None
-        # self.bridge = CvBridge()        
-        # self.bridgeObject = CvBridge()
+        self.bridge = CvBridge()        
+        # self.bridgeObject = CvBridge()        # maybe uncomment
         rp = rospkg.RosPack()
         self.create_subscription(Image, "/yolo_image", self.yolo_image_callback)
         self.detected_object_path = os.path.join(rp.get_path("video_cam"), "detected")
@@ -184,11 +184,11 @@ class YoloResultSubscriber(Node):
         )
 
         if self.within_geofence:
-            print(f"{GREEN}Geofence status: Inside{RESET}")     # fix
+            self.get_logger().info_throttle(10, f"{GREEN}Geofence status: Inside{RESET}")
             message = f"within geofence"
             self.send_status(message, True)
         else:
-            print(f"{YELLOW}Geofence status: Outside{RESET}")   # fix
+            self.get_logger().info_throttle(10, f"{YELLOW}Geofence status: Outside{RESET}")
             message = f"NOT within geofence"
             self.send_status(message, True)
 
@@ -278,13 +278,13 @@ class YoloResultSubscriber(Node):
             self.change_mode("AUTO")
             self.change_mode("GUIDED")
             # self.servo_controller.run_sequence()
-            rospy.loginfo("Stopping detection...")
+            self.get_logger().info("Stopping detection...")
             self.subscriber.unregister()
         
         self.get_logger().info(f"{GREEN}Lap Updated: {self.lap}{RESET}")
 
     def speed_cb(self, msg):
-        self.get_logger().info(f"{BLUE}Current airspeed: {msg.airspeed:.2f}{RESET}")
+        self.get_logger().info_throttle(10, f"{BLUE}Current airspeed: {msg.airspeed:.2f}{RESET}")
 
     def gps_calc(self, gps_lat, gps_lon, target_x, target_y, img_width, img_height, yaw_degrees):
         """Calculate GPS coordinates assuming max shift of 100ft (~0.00030 deg) from image center to edge."""
@@ -379,9 +379,9 @@ class YoloResultSubscriber(Node):
                         )
                         if self.latest_yolo_image_msg is not None and queue_length <= 2:
                             timestamp = time.strftime("%Y%m%d-%H%M%S")
-                            # yolo_image = self.bridge.imgmsg_to_cv2(
-                            #     self.latest_yolo_image_msg, desired_encoding="bgr8"
-                            # )
+                            yolo_image = self.bridge.imgmsg_to_cv2(
+                                self.latest_yolo_image_msg, desired_encoding="bgr8"
+                            )
                             detected_filename = os.path.join(
                                 self.detected_object_path,
                                 f"detected_photo_{timestamp}.jpg"
@@ -406,19 +406,19 @@ class YoloResultSubscriber(Node):
         q = self.detected_object_waypoints.get_detected_objects()
         return any(item["name"] == object_name for item in q)
 
-    # def set_servo(self, channel, pwm_value):
-    #     try:
-    #         command = CommandLong.Request()
-    #         command.command = 183  # MAV_CMD_DO_SET_SERVO
-    #         command.param1 = channel
-    #         command.param2 = pwm_value
-    #         response = self.command_service(command)            # maybe error here
-    #         if response.success:
-    #             self.get_logger().info(f"Servo on channel {channel} set to PWM {pwm_value}")
-    #         else:
-    #             self.get_logger().info("Failed to set servo.")
-    #     except Exception as e:
-    #         self.get_logger().info("Service call failed: {e}")
+    def set_servo(self, channel, pwm_value):
+        try:
+            command = CommandLong.Request()
+            command.command = 183  # MAV_CMD_DO_SET_SERVO
+            command.param1 = channel
+            command.param2 = pwm_value
+            response = self.command_service(command)            # maybe error here
+            if response.success:
+                self.get_logger().info(f"Servo on channel {channel} set to PWM {pwm_value}")
+            else:
+                self.get_logger().error("Failed to set servo.")
+        except Exception as e:
+            self.get_logger().error(f"Service call failed: {str(e)}")
 
     def request_drone_data(self):
         self.drone_client = self.create_client(GetGPSData, "/get_drone_data")
@@ -479,11 +479,11 @@ class YoloResultSubscriber(Node):
         except Exception as e:
             self.get_logger().error(str(e))
 
-    # def activate_servo(self):
-    #     servo_channel = 9
-    #     self.set_servo(servo_channel, 1500)
-    #     time.sleep(1)
-    #     self.set_servo(servo_channel, 1000)
+    def activate_servo(self):
+        servo_channel = 9
+        self.set_servo(servo_channel, 1500)
+        time.sleep(1)
+        self.set_servo(servo_channel, 1000)
 
     def change_mode(self, mode):
         # set_mode service should already be ready from self._wait_for_services
