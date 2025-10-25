@@ -33,11 +33,13 @@ HALL_SENSOR_PIN = 15
 class ServoController(Node):
     def __init__(self):
         super().__init__('servo_controller')
-    
+
+        # Service clients
         self.command_client = self.create_client(CommandLong, '/mavros/cmd/command')
         self.set_mode = self.create_client(SetMode, "/mavros/set_mode")
         self.wait_for_services()
 
+        # Status publisher
         self.status_pub = self.create_publisher(StatusText, "/mavros/statustext/send", 10)
 
         self.last_status_time = 0
@@ -47,14 +49,21 @@ class ServoController(Node):
         GPIO.setmode(GPIO.BOARD)
         GPIO.setup(LIMIT_SWITCH_PIN, GPIO.IN)
         GPIO.setup(HALL_SENSOR_PIN, GPIO.IN)
-        rospy.on_shutdown(self.cleanup_gpio)
+        rclpy.on_shutdown(self.cleanup_gpio) #may work, IDK lol
 
         self.last_hall_state = GPIO.input(HALL_SENSOR_PIN)
         self.tick_count = 0
         self.drop_distance_ft = 0.0
         self.alt = 0
 
-        self.create_subscription("/mavros/global_position/rel_alt", Float64, self.altitude_callback)
+        # Altitude subscriber
+        self.altitude_sub = self.create_subscription(
+            Float64,
+            "/mavros/global_position/rel_alt",
+            self.altitude_callback,
+            10)
+        self.altitude_sub  # prevent unused variable warning
+
         self.get_logger().info(f"✅ GPIO initialized. Monitoring pin {LIMIT_SWITCH_PIN} for limit switch.")
 
     def wait_for_services(self):
@@ -72,6 +81,7 @@ class ServoController(Node):
 
     def move_servo(self, channel, pwm):
         try:
+            # Sending request to move servo
             request = CommandLong.Request()
             request.broadcast = False
             request.command = 183  # MAV_CMD_DO_SET_SERVO
@@ -84,6 +94,7 @@ class ServoController(Node):
             request.param6 = 0
             request.param7 = 0
 
+            # Get the response from the service
             future = self.command_client.call_async(request)
             rclpy.spin_until_future_complete(self, future)
             response = future.result()
@@ -112,6 +123,7 @@ class ServoController(Node):
             return False
 
 
+    # Change flight mode
     def change_mode(self, mode):
         self.get_logger().info(f"Setting mode to {mode}...")
         try:
@@ -145,6 +157,7 @@ class ServoController(Node):
             self.tick_count += 1
         self.last_hall_state = current_state
 
+    # Listens to altitude updates
     def altitude_callback(self, msg):
         self.alt = msg.data
         self.get_logger().info(f"Altitude updated: {self.alt} meters")
