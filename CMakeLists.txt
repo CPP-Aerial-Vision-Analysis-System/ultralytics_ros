@@ -64,6 +64,7 @@ install(TARGETS
 
 install(PROGRAMS
   script/tracker_node.py
+  script/yolo_result_sub.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
