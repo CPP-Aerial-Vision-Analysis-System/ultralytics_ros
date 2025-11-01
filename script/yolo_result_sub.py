@@ -4,15 +4,16 @@ from rclpy.node import Node
 from ultralytics_ros.msg import YoloResult
 from vision_msgs.msg import Detection2D
 from mavros_msgs.srv import CommandLong, SetMode, WaypointSetCurrent, WaypointPull
-from mavros_msgs.msg import WaypointReached, VfrHud, StatusText
+from mavros_msgs.msg import WaypointReached, VfrHud, StatusText, WaypointList
 from geometry_msgs.msg import Pose2D
 from sensor_msgs.msg import NavSatFix, Image
 from std_msgs.msg import Bool
 from rcl_interfaces.srv import GetParameters
 
-from cv_bridge import CvBridge        | check if this is in ros2
+from cv_bridge import CvBridge
 
 from interfaces.srv import GetGPSData, AddWaypoint, DelWaypoint
+from interfaces.msg import ImageResult
 from wp_sender.wp_sender.parameter import ParameterManager
 
 from collections import deque
@@ -29,8 +30,17 @@ RESET = "\033[0m"
 ALT = 16.8  # in meters (this is ~55 ft)
 
 # both in degrees
-HFOV = 68.75
-VFOV = 53.13
+# HFOV = 68.75
+# VFOV = 53.13
+
+class Detection_Object:
+    def __init__(self, type, confidence, waypoint_index):
+        self.type = type          # person or tent
+        self.confidence = confidence     
+        self.waypoint = waypoint_index       # index > 0
+    
+    def is_valid(self):
+        return True if self.confidence > 0 and self.waypoint > 0
 
 class Detected_Object_Waypoints(Node):
     def __init__(self):
@@ -62,7 +72,7 @@ class Detected_Object_Waypoints(Node):
         """
         return self.detected_objects
 
-    def rotate_waypoints(self, rotate=-1):
+    def rotate_waypoints(self, rotate=-1):      # might not use this
         if self.detected_objects:
             self.detected_objects.rotate(rotate)
 
@@ -76,6 +86,8 @@ class YoloResultSubscriber(Node):
 
         # Subscribers
         self.create_subscription(YoloResult, 'yolo_result', self.yolo_result_cb, 1)
+        self.create_subscription(ImageResult, "/image_detection", self.image_result_cb, 1)
+        self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_cb, 1)
         self.create_subscription(WaypointReached, "/mavros/mission/reached", self.update_waypoint_reached, 1)   # original doesn't have queue
         self.create_subscription(VfrHud, "/mavros/vfr_hub", self.speed_cb)
         self.create_subscription(StatusText, "/mavros/statustext/recv", self.restart_callback)
@@ -131,9 +143,8 @@ class YoloResultSubscriber(Node):
 
         self.latest_yolo_image_msg = None
         self.bridge = CvBridge()        
-        # self.bridgeObject = CvBridge()        # maybe uncomment
         rp = rospkg.RosPack()
-        self.create_subscription(Image, "/yolo_image", self.yolo_image_callback)
+        self.create_subscription(Image, "/yolo_image", self.yolo_image_callback)        # change to match in object_detection?
         self.detected_object_path = os.path.join(rp.get_path("video_cam"), "detected")
 
         if not os.path.exists(self.detected_object_path):
@@ -174,6 +185,13 @@ class YoloResultSubscriber(Node):
         # }
 
         self.create_subscription(NavSatFix, "/mavros/global_position/global", self.geofence_check)
+
+        self.waypoints = []
+        # store highest confidence detections
+        self.detections = {
+            "person": Detection_Object(type="person", confidence=0, waypoint_index=0),
+            "tent": Detection_Object(type="tent", confidence=0, waypoint_index=0)
+        }
 
     def geofence_check(self, msg):
         lat = msg.latitude
@@ -244,29 +262,37 @@ class YoloResultSubscriber(Node):
 
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq
-        q = self.detected_object_waypoints.get_detected_objects()
+        # q = self.detected_object_waypoints.get_detected_objects()
 
-        if self.waypoint_reached = self.last_before_rtl:
-            self.lap += 1
+        if self.waypoint_reached = self.last_before_rtl:            # insert copy of old waypoints for person and tent before rtl
+            # self.lap += 1
 
-            if len(q) = 0:
-                self.get_logger().info("Queue Empty")
-                index = self.rtl_index
-                self.delete_waypoint_data(index)
-                return
+            # if len(q) = 0:
+            #     self.get_logger().info("Queue Empty")
+            #     index = self.rtl_index
+            #     self.delete_waypoint_data(index)
+            #     return
             
-            name = q[0]['name']
-            lat = q[0]["latitude"]
-            long = q[0]["longitude"]
-            index = self.last_before_rtl + 1
-            message = f"{name} INSERTED at index: {index}"
-            self.send_status(message, False)
-            self.change_mode("GUIDED")
-            self.send_waypoint_data(lat, long, ALT, index)
-            self.change_mode("AUTO")
+            # name = q[0]['name']
+            # lat = q[0]["latitude"]
+            # long = q[0]["longitude"]
+            # index = self.last_before_rtl + 1
+            # message = f"{name} INSERTED at index: {index}"
+            # self.send_status(message, False)
+            # self.change_mode("GUIDED")
+            # self.send_waypoint_data(lat, long, ALT, index)
+            # self.change_mode("AUTO")
 
-            self.rtl_index = index
-            self.last_before_rtl = -1
+            # self.rtl_index = index
+            # self.last_before_rtl = -1
+            # return
+            person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
+            tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
+            self.change_mode("GUIDED")
+            self.send_waypoint_data(person_lat, person_lon, person_alt, self.last_before_rtl + 1)
+            self.send_waypoint_data(tent_lat, tent_lon, tent_alt, self.last_before_rtl + 2)
+            self.change_mode("AUTO")
+            # not finished check mission to see
             return
         
         if self.waypoint_reached == self.rtl_index:
@@ -282,6 +308,20 @@ class YoloResultSubscriber(Node):
             self.subscriber.unregister()
         
         self.get_logger().info(f"{GREEN}Lap Updated: {self.lap}{RESET}")
+    
+    def waypoints_cb(self, msg: WaypointList):
+        self.waypoints = msg.waypoints
+
+    def get_waypoint(self, waypoint_index):     # return copy of an old waypoint given index
+        if 0 < waypoint_index < len(self.waypoints):
+            wp = self.waypoints[waypoint_index]
+            lat = wp.x_lat
+            lon = wp.y_long
+            alt = wp.z_alt
+            return lat, lon, alt
+        else:
+            self.get_logger().warn(f"Waypoint index {waypoint_index} out of range")
+            return None
 
     def speed_cb(self, msg):
         self.get_logger().info_throttle(10, f"{BLUE}Current airspeed: {msg.airspeed:.2f}{RESET}")
@@ -401,6 +441,27 @@ class YoloResultSubscriber(Node):
                         self.get_logger().info(self.detected_object_waypoints.get_detected_objects())
             else:
                 self.get_logger().info_throttle(5, "No objects detected.")
+
+    def image_result_cb(self, msg):
+        if msg.detections.detections:
+            self.get_logger().info(f"{len(msg.detections.detections)} object(s) detected!")
+
+            if not detection.results:
+                continue
+            
+            for result in detection.results:        # loop through all detections in image
+                obj_class = result.hypothesis.class_id
+                obj_conf = result.hypothesis.score
+
+                if obj_class in self.detections:        # only works if obj_class is saved as 'person' or 'tent'    // TODO: DOUBLE CHECK THIS
+                    if obj_conf > self.detections[obj_class].confidence:        # get highest conf
+                        self.get_logger().info(f"Updating {obj_class}: old_conf={self.detections[obj_class].confidence:.2f}, new_conf={obj_conf:.2f}")
+                        # update conf
+                        self.detections[obj_class].confidence = obj_conf
+                        # update wp_index
+                        self.detections[obj_class].waypoint_index = msg.waypoint_index
+        else:
+            self.get_logger().info_throttle(5, "No objects detected.")
 
     def compare_object_names(self, object_name):
         q = self.detected_object_waypoints.get_detected_objects()
@@ -527,3 +588,8 @@ class YoloResultSubscriber(Node):
                 raise Exception("Failed to set mission index.")
         except Exception as e:
             self.get_logger().error(str(e))
+
+if __name__ == "__main__":
+    rclpy.init()
+    node = YoloResultSubscriber()
+    rclpy.spin(node)
