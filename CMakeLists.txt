@@ -27,6 +27,7 @@ find_package(OpenCV REQUIRED)
 find_package(PCL REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/ImageResult.msg"
   "msg/YoloResult.msg"
   DEPENDENCIES
   sensor_msgs
@@ -65,6 +66,7 @@ install(TARGETS
 install(PROGRAMS
   script/tracker_node.py
   script/yolo_result_sub.py
+  script/main_controller.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -1,7 +1,7 @@
-#!/usr/bin/env pythom3
+#!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from ultralytics_ros.msg import YoloResult
+from ultralytics_ros.msg import YoloResult, ImageResult
 from vision_msgs.msg import Detection2D
 from mavros_msgs.srv import CommandLong, SetMode, WaypointSetCurrent, WaypointPull
 from mavros_msgs.msg import WaypointReached, VfrHud, StatusText, WaypointList
@@ -13,8 +13,7 @@ from rcl_interfaces.srv import GetParameters
 from cv_bridge import CvBridge
 
 from interfaces.srv import GetGPSData, AddWaypoint, DelWaypoint
-from interfaces.msg import ImageResult
-from wp_sender.wp_sender.parameter import ParameterManager
+from wp_sender.parameter import ParameterManager
 
 from collections import deque
 import time, cv2, math, sys, os, subprocess
@@ -39,14 +38,14 @@ class Detection_Object:
         self.confidence = confidence     
         self.waypoint = waypoint_index       # index > 0
     
-    def is_valid(self):
-        return True if self.confidence > 0 and self.waypoint > 0
+    # def is_valid(self):
+    #     return True if self.confidence > 0 and self.waypoint > 0
 
 class Detected_Object_Waypoints(Node):
     def __init__(self):
         super().__init__('detected_object_waypoints')
         self.detected_objects = (
-            deuque()
+            deque()
         ) # queue to store detected objects + GPS waypoints
 
     def add_object(self, object_name, lat, long, alt, index):
@@ -89,30 +88,19 @@ class YoloResultSubscriber(Node):
         self.create_subscription(ImageResult, "/image_detection", self.image_result_cb, 1)
         self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_cb, 1)
         self.create_subscription(WaypointReached, "/mavros/mission/reached", self.update_waypoint_reached, 1)   # original doesn't have queue
-        self.create_subscription(VfrHud, "/mavros/vfr_hub", self.speed_cb)
-        self.create_subscription(StatusText, "/mavros/statustext/recv", self.restart_callback)
+        self.create_subscription(VfrHud, "/mavros/vfr_hub", self.speed_cb, 1)
+        self.create_subscription(StatusText, "/mavros/statustext/recv", self.restart_callback, 1)           # incompatible qos
 
         # Publishers
-        self.status_pub = self.create_publisher(StatusText, "/mavros/statustext/send", queue=10)
-        self.detected_photo_pub = self.create_publisher(Bool, "/camera/object_detected", queue=10)
+        self.status_pub = self.create_publisher(StatusText, "/mavros/statustext/send", 10)
+        self.detected_photo_pub = self.create_publisher(Bool, "/camera/object_detected", 10)
 
         # Clients
         self.set_wp_client = self.create_client(WaypointSetCurrent, "/mavros/mission/set_current")
-        self.waypoint_pull_client = self.create_client(WaypointPull, "/mavross/mission/pull")
+        self.waypoint_pull_client = self.create_client(WaypointPull, "/mavros/mission/pull")
         self.set_mode_client = self.create_client(SetMode, "/mavros/set_mode")
-        
-        self._wait_for_services()   # wait for services to be available
 
-        # Wait for all services to be available
-        def _wait_for_services(self):
-            clients = [
-                ('/mavros/mission/set_current', self.set_wp_client),
-                ('/mavross/mission/pull', self.waypoint_pull_client),
-                ('/mavros/set_mode', self.set_mode_client)
-            ]
-            for name, client in clients:
-                while not client.wait_for_service(timeout_sec=1.0):
-                    self.get_logger().info(f'{name} service not available, waiting...')
+        self._wait_for_services()   # wait for services to be available
 
         # variables
         self.detected_object_waypoints = Detected_Object_Waypoints()
@@ -132,12 +120,12 @@ class YoloResultSubscriber(Node):
         self.waypoint_reached = 0
 
         self.param_manager = ParameterManager()
-        class_names = self.param_manager.get_param(self.param_manager.tracknode_client, list_params=['yolo_class_names'])['yolo_class_names']       # not tested
+        # class_names = self.param_manager.get_param(self.param_manager.tracknode_client, list_params=['yolo_class_names'])['yolo_class_names']       # not tested
 
-        while class_names is None:
-            self.get_logger().warn(f"Waiting for /yolo_class_names to be set...")
-            class_names = self.param_manager.get_param(self.param_manager.tracknode_client, list_params=['yolo_class_names'])['yolo_class_names']
-        self.class_names = eval(class_names)
+        # while class_names is None:
+            # self.get_logger().warn(f"Waiting for /yolo_class_names to be set...")
+            # class_names = self.param_manager.get_param(self.param_manager.tracknode_client, list_params=['yolo_class_names'])['yolo_class_names']
+        # self.class_names = eval(class_names)
 
         self.fetch_mission_indices()
 
@@ -192,6 +180,17 @@ class YoloResultSubscriber(Node):
             "person": Detection_Object(type="person", confidence=0, waypoint_index=0),
             "tent": Detection_Object(type="tent", confidence=0, waypoint_index=0)
         }
+
+    # Wait for all services to be available
+    def _wait_for_services(self):
+        clients = [
+            ('/mavros/mission/set_current', self.set_wp_client),
+            ('/mavross/mission/pull', self.waypoint_pull_client),
+            ('/mavros/set_mode', self.set_mode_client)
+        ]
+        for name, client in clients:
+            while not client.wait_for_service(timeout_sec=1.0):
+                self.get_logger().info(f'{name} service not available, waiting...')
 
     def geofence_check(self, msg):
         lat = msg.latitude
@@ -264,7 +263,7 @@ class YoloResultSubscriber(Node):
         self.waypoint_reached = msg.wp_seq
         # q = self.detected_object_waypoints.get_detected_objects()
 
-        if self.waypoint_reached = self.last_before_rtl:            # insert copy of old waypoints for person and tent before rtl
+        if self.waypoint_reached == self.last_before_rtl:            # insert copy of old waypoints for person and tent before rtl
             # self.lap += 1
 
             # if len(q) = 0:
@@ -380,74 +379,71 @@ class YoloResultSubscriber(Node):
             self.get_logger().debug(gps_response.latitude, gps_response.longitude, gps_response.altitude)
             self.get_logger().info_throttle(5.0, f"Current wp_reached {self.waypoint_reached}")
 
-            if self.within_geofence:        # time.time() - self.lasttime > 10:
-                # self.lasttime = time.time()
-                # self.run_detection_once = True
-                for i in range(len(bbox_coords)):
-                    # self.get_logger().info(bbox_coords[i].bbox.center)
-                    # print(gps_response.latitude, gps_response.longitude, gps_response.altitude)
-                    lat, long = self.gps_calc(
-                        gps_response.latitude,
-                        gps_response.longitude,
-                        bbox_coords[i].bbox.center.x,
-                        bbox_coords[i].bbox.center.y,
-                        640,
-                        480,
-                        gps_response.yaw
-                    )
-                    # self.get_logger().info("calling waypoint service")
-                    # waypoint_response = self.send_waypoint_data(
-                    #     lat, long, 50
-                    # )
-                    # self.get_logger.info(f"Waypoint: {waypoint_response.success}")
-                    detected_name = self.class_names[bbox_coords[i].results[0].id]
-                    index = max(self.next_after_takeoff, self.waypoint_reached + 1)
-                    if not self.compare_object_names(detected_name):
-                        message = f"{detected_name} DETECTED at index {index}"
-                        self.send_status(message, False)
-                        self.get_logger().info(f"Calculated Position: LAT: {lat}, LONG: {long}")
-                        self.detected_object_waypoints.add_object(
-                            self.class_names[bbox_coords[i].results[0].id],
-                            lat,
-                            long,
-                            ALT,
-                            index
-                        )
-                        # self.trigger_camera()
-                        queue_length = len(
-                            self.detected_object_waypoints.get_detected_objects()
-                        )
-                        if self.latest_yolo_image_msg is not None and queue_length <= 2:
-                            timestamp = time.strftime("%Y%m%d-%H%M%S")
-                            yolo_image = self.bridge.imgmsg_to_cv2(
-                                self.latest_yolo_image_msg, desired_encoding="bgr8"
-                            )
-                            detected_filename = os.path.join(
-                                self.detected_object_path,
-                                f"detected_photo_{timestamp}.jpg"
-                            )
-                            cv2.imwrite(detected_filename, yolo_image)
-                            self.get_logger().info(f"Photo saved to {detected_filename}")
+            # if self.within_geofence:        # time.time() - self.lasttime > 10:
+            #     # self.lasttime = time.time()
+            #     # self.run_detection_once = True
+            #     for i in range(len(bbox_coords)):
+            #         # self.get_logger().info(bbox_coords[i].bbox.center)
+            #         # print(gps_response.latitude, gps_response.longitude, gps_response.altitude)
+            #         lat, long = self.gps_calc(
+            #             gps_response.latitude,
+            #             gps_response.longitude,
+            #             bbox_coords[i].bbox.center.x,
+            #             bbox_coords[i].bbox.center.y,
+            #             640,
+            #             480,
+            #             gps_response.yaw
+            #         )
+            #         # self.get_logger().info("calling waypoint service")
+            #         # waypoint_response = self.send_waypoint_data(
+            #         #     lat, long, 50
+            #         # )
+            #         # self.get_logger.info(f"Waypoint: {waypoint_response.success}")
+            #         # detected_name = self.class_names[bbox_coords[i].results[0].id]
+            #         index = max(self.next_after_takeoff, self.waypoint_reached + 1)
+            #         if not self.compare_object_names(detected_name):
+            #             message = f"{detected_name} DETECTED at index {index}"
+            #             self.send_status(message, False)
+            #             self.get_logger().info(f"Calculated Position: LAT: {lat}, LONG: {long}")
+            #             self.detected_object_waypoints.add_object(
+            #                 self.class_names[bbox_coords[i].results[0].id],
+            #                 lat,
+            #                 long,
+            #                 ALT,
+            #                 index
+            #             )
+            #             # self.trigger_camera()
+            #             queue_length = len(
+            #                 self.detected_object_waypoints.get_detected_objects()
+            #             )
+            #             if self.latest_yolo_image_msg is not None and queue_length <= 2:
+            #                 timestamp = time.strftime("%Y%m%d-%H%M%S")
+            #                 yolo_image = self.bridge.imgmsg_to_cv2(
+            #                     self.latest_yolo_image_msg, desired_encoding="bgr8"
+            #                 )
+            #                 detected_filename = os.path.join(
+            #                     self.detected_object_path,
+            #                     f"detected_photo_{timestamp}.jpg"
+            #                 )
+            #                 cv2.imwrite(detected_filename, yolo_image)
+            #                 self.get_logger().info(f"Photo saved to {detected_filename}")
 
-                        # message = (
-                        #     f"'{detected_name}' at " f"LAT: {lat:.6f}, LON: {long:.6f}"
-                        # )
-                        # self.send_status(message)
-                        # message = f"WP added at {index}"
-                        # self.send_status(message)
-                        # self.change_mode("GUIDED")
-                        # self.send_waypoint_data(lat, long, ALT, index)
-                        # self.change_mode("AUTO")
-                        self.get_logger().info(self.detected_object_waypoints.get_detected_objects())
-            else:
-                self.get_logger().info_throttle(5, "No objects detected.")
+            #             # message = (
+            #             #     f"'{detected_name}' at " f"LAT: {lat:.6f}, LON: {long:.6f}"
+            #             # )
+            #             # self.send_status(message)
+            #             # message = f"WP added at {index}"
+            #             # self.send_status(message)
+            #             # self.change_mode("GUIDED")
+            #             # self.send_waypoint_data(lat, long, ALT, index)
+            #             # self.change_mode("AUTO")
+            #             self.get_logger().info(self.detected_object_waypoints.get_detected_objects())
+        else:
+            self.get_logger().info_throttle(5, "No objects detected.")
 
     def image_result_cb(self, msg):
         if msg.detections.detections:
             self.get_logger().info(f"{len(msg.detections.detections)} object(s) detected!")
-
-            if not detection.results:
-                continue
             
             for result in detection.results:        # loop through all detections in image
                 obj_class = result.hypothesis.class_id
@@ -560,9 +556,11 @@ class YoloResultSubscriber(Node):
                 self.get_logger().info(f"Mode changed to {mode}")
             else:
                 self.get_logger().error("Failed to change mode")
+        except Exception as e:
+            self.get_logger().error(str(e))
 
     # TODO: fix throttle. function still works but throttling needs to be fixed
-    def send_status(self, text, throttle=False):
+    def send_status(self, text, throttle):
         now = time.time()
 
         if throttle and (now - self.last_status_time <= self.status_interval):
