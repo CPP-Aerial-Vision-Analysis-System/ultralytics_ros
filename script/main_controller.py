@@ -137,6 +137,25 @@ class MainController(Node):
         except Exception as e:
             self.get_logger().error(str(e))
 
+    def send_waypoint_data(self, lat, long, alt, index):
+        self.get_logger().info("called waypoint function")
+        self.add_wp_client = self.create_client(AddWaypoint, "/addWaypoint")            # need waypoint.py to be running
+        while not self.add_wp_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info("Waiting for add waypoint service ...")
+        self.get_logger().info("addition service loaded")
+
+        try:
+            req = AddWaypoint.Request()
+            req.altitude = alt
+            req.longitude = long
+            req.latitude = lat
+            req.index = index
+            future = self.add_wp_client.call_async(req)
+            rclpy.spin_until_future_complete(self, future)
+            return future.result()      # add .success if we bool otherwise keep if we want Response obj
+        except Exception as e:
+            self.get_logger().error(str(e))
+
 if __name__ == "__main__":
     rclpy.init()
     node = MainController()
