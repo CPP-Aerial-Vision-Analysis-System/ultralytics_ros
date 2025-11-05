@@ -8,6 +8,7 @@ from mavros_msgs.msg import WaypointReached, VfrHud, StatusText, WaypointList
 from sensor_msgs.msg import NavSatFix, Image
 from std_msgs.msg import Bool
 from rcl_interfaces.srv import GetParameters
+from rcl_interfaces.msg import ParameterEvent
 
 from cv_bridge import CvBridge
 
@@ -32,6 +33,7 @@ class MainController(Node):
         self.create_subscription(ImageResult, "/image_detection", self.image_result_cb, 1)
         self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_cb, 1)
         self.create_subscription(WaypointReached, "/mavros/mission/reached", self.update_waypoint_reached, 1)
+        self.create_subscription(ParameterEvent, "/parameter_events", self.parameter_event_cb, 10)
 
         # Publishers
 
@@ -68,7 +70,18 @@ class MainController(Node):
         self.rtl_index = int(rtl_index)
         self.next_after_takeoff = int(next_after_takeoff)
         self.last_before_rtl = int(last_before_rtl)
-        
+
+    def parameter_event_cb(self, msg: ParameterEvent):
+        if msg.node == "/waypoint_manager":
+            for changed_param in msg.changed_parameters:
+                name = changed_param.name
+                value = changed_param.value
+
+                if name in ["num_waypoints", "takeoff_index", "rtl_index", "next_after_takeoff", "last_before_rtl"]:
+                    self.get_logger().info(f"[Param Update] {name} changed")
+                    self.fetch_mission_indices()
+                    break
+
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
         self.get_logger().info(f"Current waypoint: {self.waypoint_reached}")
