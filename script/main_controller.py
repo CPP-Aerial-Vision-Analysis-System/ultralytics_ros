@@ -23,7 +23,7 @@ class Detection_Object:
     def __init__(self, type, confidence, waypoint_index):
         self.type = type          # person or tent
         self.confidence = confidence     
-        self.waypoint = waypoint_index       # index > 0
+        self.waypoint_index = waypoint_index       # index > 0
 
 class MainController(Node):
     def __init__(self):
@@ -41,6 +41,9 @@ class MainController(Node):
         self.set_mode_client = self.create_client(SetMode, "/mavros/set_mode")
         while not self.set_mode_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info(f"Set mode service not available, waiting ...")
+        self.add_wp_client = self.create_client(AddWaypoint, "/addWaypoint")
+        while not self.add_wp_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info(f"Waiting for add waypoint service ..s.")
 
         # variables
         self.last_before_rtl = 0
@@ -86,19 +89,32 @@ class MainController(Node):
         self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
         self.get_logger().info(f"Current waypoint: {self.waypoint_reached}")
 
-        if self.waypoint_reached == self.last_before_rtl:
-            person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
-            tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
-            self.change_mode("GUIDED")
-            self.send_waypoint_data(person_lat, person_lon, person_alt, self.last_before_rtl + 1)
-            self.send_waypoint_data(tent_lat, tent_lon, tent_alt, self.last_before_rtl + 2)
-            self.change_mode("AUTO")
-            # not finished check mission to see
-            return
+        if self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") and self.valid_detection("tent")):
+            # UNCOMMENT TO TEST DATA RECEIVED FROM /image_detection
+            # person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
+            # tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
+            # self.send_waypoint_data([
+            #     {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1},
+            #     {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 2}
+            # ])
+
+            self.send_waypoint_data([
+                {"lat": -40, "lon": -130, "alt": 10, "index": self.last_before_rtl + 1},
+                {"lat": -30, "lon": -120, "alt": 10, "index": self.last_before_rtl + 2}
+            ])
+        elif self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") or self.valid_detection("tent")):
+            self.send_waypoint_data([
+                {"lat": -35, "lon": -125, "alt": 10, "index": self.last_before_rtl + 1}
+            ])
         
         if self.waypoint_reached == self.rtl_index:
             self.get_logger().info("Returning to launch. Mission complete.")
 
+    def valid_detection(self, type):
+        if type in self.detections:
+            if self.detections[type].confidence > 0:
+                return True
+        return False
         
     def waypoints_cb(self, msg: WaypointList):
         self.waypoints = msg.waypoints
@@ -131,7 +147,7 @@ class MainController(Node):
                             # update wp_index
                             self.detections[obj_class].waypoint_index = msg.waypoint_index
         else:
-            self.get_logger().info_throttle(5, "No objects detected.")
+            self.get_logger().info("No objects detected.")
 
     def change_mode(self, mode):
         # set_mode service should already be ready from self._wait_for_services
@@ -150,22 +166,24 @@ class MainController(Node):
         except Exception as e:
             self.get_logger().error(str(e))
 
-    def send_waypoint_data(self, lat, long, alt, index):
-        self.get_logger().info("called waypoint function")
-        self.add_wp_client = self.create_client(AddWaypoint, "/addWaypoint")            # need waypoint.py to be running
-        while not self.add_wp_client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info("Waiting for add waypoint service ...")
-        self.get_logger().info("addition service loaded")
+    def send_waypoint_data(self, wp_list):
+        self.get_logger().info("sending new waypoint data")             # delete once everything works
 
         try:
             req = AddWaypoint.Request()
-            req.altitude = alt
-            req.longitude = long
-            req.latitude = lat
-            req.index = index
+
+            req.latitude = [wp.lat for wp in wp_list]
+            req.longitude = [wp.lon for wp in wp_list]
+            req.altitude = [wp.alt for wp in wp_list]
+            req.index = [wp.index for wp in wp_list]
+
             future = self.add_wp_client.call_async(req)
             rclpy.spin_until_future_complete(self, future)
-            return future.result()      # add .success if we bool otherwise keep if we want Response obj
+
+            if future.result() and future.result().success:
+                self.get_logger().info("Waypoints sent successfully.")
+            else:
+                self.get_logger().warn("Failed to add new waypoints.")
         except Exception as e:
             self.get_logger().error(str(e))
 
