@@ -89,16 +89,25 @@ class MainController(Node):
         self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
         self.get_logger().info(f"Current waypoint: {self.waypoint_reached}")
 
-        if self.waypoint_reached == self.last_before_rtl: # and (self.valid_detection("person") and self.valid_detection("tent")):
-            # Send both waypoints at once
-            waypoints = [
-                {"lat": -35.3632457, "lon": 149.165117, "alt": 4, "index": self.last_before_rtl + 1},
-                {"lat": -35.3631743, "lon": 149.1650885, "alt": 4, "index": self.last_before_rtl + 2}
-            ]
-            if self.send_waypoint_data(waypoints):
-                self.get_logger().info("Both waypoints added successfully")
-            else:
-                self.get_logger().error("Failed to add waypoints")
+        # UNCOMMENT TO TEST DATA RECEIVED FROM /image_detection
+        if self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") and self.valid_detection("tent")):
+            person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
+            tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
+            self.send_waypoint_data([
+                {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1},
+                {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 2}
+            ])
+
+        # if self.waypoint_reached == self.last_before_rtl: # and (self.valid_detection("person") and self.valid_detection("tent")):
+        #     # Send both waypoints at once
+        #     waypoints = [
+        #         {"lat": -35.3632457, "lon": 149.165117, "alt": 4, "index": self.last_before_rtl + 1},
+        #         {"lat": -35.3631743, "lon": 149.1650885, "alt": 4, "index": self.last_before_rtl + 2}
+        #     ]
+        #     if self.send_waypoint_data(waypoints):
+        #         self.get_logger().info("Both waypoints added successfully")
+        #     else:
+        #         self.get_logger().error("Failed to add waypoints")
         # elif self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") or self.valid_detection("tent")):
         #     self.send_waypoint_data([
         #         {"lat": -35, "lon": -125, "alt": 10, "index": self.last_before_rtl + 1}
