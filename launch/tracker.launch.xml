@@ -44,7 +44,7 @@
   </node>
 
   <node pkg="waypoint_mavros" exec="waypoint" output="screen"></node>
-
+  
   <!-- <node pkg="waypoint_mavros" exec="killnode" output="screen"></node> -->
 
   <!-- <node pkg="wp_sender" exec="send_wp" output="screen"></node> -->
@@ -53,7 +53,7 @@
 
   <!-- <node pkg="gps_ros2" exec="gpstest" output="screen"></node> -->
 
-  <!-- <node pkg="video_cam" exec="object_detection_sahi" output="screen"></node> -->
+  <node pkg="detection" exec="object_detection_sahi" output="screen"></node>
 
   <node pkg="ultralytics_ros" exec="main_controller.py" output="screen"></node>
 

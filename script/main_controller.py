@@ -140,9 +140,14 @@ class MainController(Node):
         if msg.detections.detections:
             self.get_logger().info(f"{len(msg.detections.detections)} object(s) detected!")
             
+            #self.get_logger().info(f"{msg}")
             for detection in msg.detections.detections:
                 for result in detection.results:
-                    obj_class = result.hypothesis.class_id
+                    obj_id = result.hypothesis.class_id
+                    if obj_id == "0":
+                        obj_class = "person"
+                    elif obj_id == "1":
+                        obj_class = "tent"
                     obj_conf = result.hypothesis.score
 
                     if obj_class in self.detections:        # only works if obj_class is saved as 'person' or 'tent'    // TODO: DOUBLE CHECK THIS
