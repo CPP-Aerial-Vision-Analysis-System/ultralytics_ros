@@ -23,8 +23,7 @@ class Detection_Object:
     def __init__(self, type, confidence, waypoint_index):
         self.type = type          # person or tent
         self.confidence = confidence     
-        self.waypoint_index = waypoint_index       # index > 0
-
+        self.waypoint_index = waypoint_index # index > 0
 class MainController(Node):
     def __init__(self):
         super().__init__('main_controller')
@@ -53,7 +52,9 @@ class MainController(Node):
         self.rtl_index = 0
         self.lap = 0
         self.waypoint_reached = 0
-        
+        self.human_wp = -1
+        self.tent_wp = -1
+        self.wait_to_send_wp = True # wait to send new waypoints until reaching last_before_rtl
         self.param_manager = ParameterManager()
 
         self.fetch_mission_indices()
@@ -81,38 +82,59 @@ class MainController(Node):
                 name = changed_param.name
                 value = changed_param.value
 
-                if name in ["num_waypoints", "takeoff_index", "rtl_index", "next_after_takeoff", "last_before_rtl"]:
-                    # self.get_logger().info(f"[Param Update] {name} changed")
+                if name in {"num_waypoints", "takeoff_index", "rtl_index", "next_after_takeoff", "last_before_rtl"}:
+                    #self.get_logger().info(f"[Param Update] {name} changed")
                     self.fetch_mission_indices()
                     break
 
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
-        # self.get_logger().info(f"Current waypoint: {self.waypoint_reached}")
 
         # UNCOMMENT TO TEST DATA RECEIVED FROM /image_detection
-        if self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") and self.valid_detection("tent")):
+        if self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") and self.valid_detection("tent") and self.wait_to_send_wp):
             person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
             tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
+            # Update new_wp for both detections (MIGHT WORK LMAO)
+            self.get_logger().info(f"last before rtl: {self.last_before_rtl}")
+            self.human_wp = self.last_before_rtl + 2
+            self.tent_wp = self.last_before_rtl + 1
+            
             self.send_waypoint_data([
                 {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1},
                 {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
             ])
-        elif self.waypoint_reached == self.last_before_rtl:
+            self.wait_to_send_wp = False
+            self.get_logger().info(f"last before rtl: {self.last_before_rtl}")
+
+        elif self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") or self.valid_detection("tent")) and self.wait_to_send_wp:
             if self.valid_detection("person"):
                 person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
+                self.human_wp = self.last_before_rtl + 1
+                self.get_logger().info("Only person was detected")
+                self.get_logger().info(f"last before rtl: {self.last_before_rtl}")
                 self.send_waypoint_data([
                     {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1}
                 ])
+                self.wait_to_send_wp = False
+                self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
             if self.valid_detection("tent"):
                 tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
+                self.tent_wp = self.last_before_rtl + 1
                 self.send_waypoint_data([
                     {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
                 ])
-
-        if self.waypoint_reached == self.rtl_index:
-            self.get_logger().info("Returning to launch. Mission complete.")
-
+                self.wait_to_send_wp = False
+                self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
+        
+        if self.waypoint_reached == self.human_wp:
+            self.get_logger().info("Reached human waypoint, activating servo...")
+            self.move_human_servo()
+            self.send_ack("Reached human waypoint, activating servo")
+        if self.waypoint_reached == self.tent_wp:
+            self.get_logger().info("Reached tent waypoint, activating servo...")
+            self.move_tent_servo()
+            self.send_ack("Reached tent waypoint, activating servo")
+        
     def valid_detection(self, type):
         if type in self.detections:
             if self.detections[type].confidence > 0:
@@ -195,18 +217,17 @@ class MainController(Node):
                 )
 
             future = self.add_wp_client.call_async(req)
-            rclpy.spin_until_future_complete(self, future)
-
-            if future.result() and future.result().success:
+            #rclpy.spin_until_future_complete(self, future) PLEASE COMMENT THIS OUT ON GOD
+            if future.result() is not None:
                 self.get_logger().info("All waypoints sent successfully")
-                return True
             else:
                 self.get_logger().warn("Failed to add waypoints")
-                return False
         except Exception as e:
             self.get_logger().error(f"Error sending waypoints: {str(e)}")
-            return False
-    
+    def move_human_servo(self):
+        pass
+    def move_tent_servo(self):
+        pass
     def send_ack(self, text):
         msg = StatusText()
         msg.severity = 6  # INFO
