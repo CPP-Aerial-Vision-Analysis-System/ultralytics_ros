@@ -53,13 +53,13 @@
 
   <!-- <node pkg="gps_ros2" exec="gpstest" output="screen"></node> -->
 
-  <node pkg="detection" exec="object_detection_sahi" output="screen"></node>
+  <!-- <node pkg="detection" exec="object_detection_sahi" output="screen"></node> -->
 
   <node pkg="ultralytics_ros" exec="main_controller.py" output="screen"></node>
 
-  <node pkg="video_cam" exec="image_pub" output="screen"></node>
+  <!-- <node pkg="video_cam" exec="image_pub" output="screen"></node> -->
 
-  <node pkg="mapping" exec="trigger" output="screen"></node>
+  <!-- <node pkg="mapping" exec="trigger" output="screen"></node> -->
 
   <!-- <node pkg="mapping" exec="mapping" output="screen"></node> -->
 
