@@ -379,65 +379,65 @@ class YoloResultSubscriber(Node):
             self.get_logger().debug(gps_response.latitude, gps_response.longitude, gps_response.altitude)
             self.get_logger().info_throttle(5.0, f"Current wp_reached {self.waypoint_reached}")
 
-            # if self.within_geofence:        # time.time() - self.lasttime > 10:
-            #     # self.lasttime = time.time()
-            #     # self.run_detection_once = True
-            #     for i in range(len(bbox_coords)):
-            #         # self.get_logger().info(bbox_coords[i].bbox.center)
-            #         # print(gps_response.latitude, gps_response.longitude, gps_response.altitude)
-            #         lat, long = self.gps_calc(
-            #             gps_response.latitude,
-            #             gps_response.longitude,
-            #             bbox_coords[i].bbox.center.x,
-            #             bbox_coords[i].bbox.center.y,
-            #             640,
-            #             480,
-            #             gps_response.yaw
-            #         )
-            #         # self.get_logger().info("calling waypoint service")
-            #         # waypoint_response = self.send_waypoint_data(
-            #         #     lat, long, 50
-            #         # )
-            #         # self.get_logger.info(f"Waypoint: {waypoint_response.success}")
-            #         # detected_name = self.class_names[bbox_coords[i].results[0].id]
-            #         index = max(self.next_after_takeoff, self.waypoint_reached + 1)
-            #         if not self.compare_object_names(detected_name):
-            #             message = f"{detected_name} DETECTED at index {index}"
-            #             self.send_status(message, False)
-            #             self.get_logger().info(f"Calculated Position: LAT: {lat}, LONG: {long}")
-            #             self.detected_object_waypoints.add_object(
-            #                 self.class_names[bbox_coords[i].results[0].id],
-            #                 lat,
-            #                 long,
-            #                 ALT,
-            #                 index
-            #             )
-            #             # self.trigger_camera()
-            #             queue_length = len(
-            #                 self.detected_object_waypoints.get_detected_objects()
-            #             )
-            #             if self.latest_yolo_image_msg is not None and queue_length <= 2:
-            #                 timestamp = time.strftime("%Y%m%d-%H%M%S")
-            #                 yolo_image = self.bridge.imgmsg_to_cv2(
-            #                     self.latest_yolo_image_msg, desired_encoding="bgr8"
-            #                 )
-            #                 detected_filename = os.path.join(
-            #                     self.detected_object_path,
-            #                     f"detected_photo_{timestamp}.jpg"
-            #                 )
-            #                 cv2.imwrite(detected_filename, yolo_image)
-            #                 self.get_logger().info(f"Photo saved to {detected_filename}")
+            if self.within_geofence:        # time.time() - self.lasttime > 10:
+                # self.lasttime = time.time()
+                # self.run_detection_once = True
+                for i in range(len(bbox_coords)):
+                    # self.get_logger().info(bbox_coords[i].bbox.center)
+                    # print(gps_response.latitude, gps_response.longitude, gps_response.altitude)
+                    lat, long = self.gps_calc(
+                        gps_response.latitude,
+                        gps_response.longitude,
+                        bbox_coords[i].bbox.center.x,
+                        bbox_coords[i].bbox.center.y,
+                        640,
+                        480,
+                        gps_response.yaw
+                    )
+                    # self.get_logger().info("calling waypoint service")
+                    # waypoint_response = self.send_waypoint_data(
+                    #     lat, long, 50
+                    # )
+                    # self.get_logger.info(f"Waypoint: {waypoint_response.success}")
+                    # detected_name = self.class_names[bbox_coords[i].results[0].id]
+                    index = max(self.next_after_takeoff, self.waypoint_reached + 1)
+                    if not self.compare_object_names(detected_name):
+                        message = f"{detected_name} DETECTED at index {index}"
+                        self.send_status(message, False)
+                        self.get_logger().info(f"Calculated Position: LAT: {lat}, LONG: {long}")
+                        self.detected_object_waypoints.add_object(
+                            self.class_names[bbox_coords[i].results[0].id],
+                            lat,
+                            long,
+                            ALT,
+                            index
+                        )
+                        # self.trigger_camera()
+                        queue_length = len(
+                            self.detected_object_waypoints.get_detected_objects()
+                        )
+                        if self.latest_yolo_image_msg is not None and queue_length <= 2:
+                            timestamp = time.strftime("%Y%m%d-%H%M%S")
+                            yolo_image = self.bridge.imgmsg_to_cv2(
+                                self.latest_yolo_image_msg, desired_encoding="bgr8"
+                            )
+                            detected_filename = os.path.join(
+                                self.detected_object_path,
+                                f"detected_photo_{timestamp}.jpg"
+                            )
+                            cv2.imwrite(detected_filename, yolo_image)
+                            self.get_logger().info(f"Photo saved to {detected_filename}")
 
-            #             # message = (
-            #             #     f"'{detected_name}' at " f"LAT: {lat:.6f}, LON: {long:.6f}"
-            #             # )
-            #             # self.send_status(message)
-            #             # message = f"WP added at {index}"
-            #             # self.send_status(message)
-            #             # self.change_mode("GUIDED")
-            #             # self.send_waypoint_data(lat, long, ALT, index)
-            #             # self.change_mode("AUTO")
-            #             self.get_logger().info(self.detected_object_waypoints.get_detected_objects())
+                        # message = (
+                        #     f"'{detected_name}' at " f"LAT: {lat:.6f}, LON: {long:.6f}"
+                        # )
+                        # self.send_status(message)
+                        # message = f"WP added at {index}"
+                        # self.send_status(message)
+                        # self.change_mode("GUIDED")
+                        # self.send_waypoint_data(lat, long, ALT, index)
+                        # self.change_mode("AUTO")
+                        self.get_logger().info(self.detected_object_waypoints.get_detected_objects())
         else:
             self.get_logger().info_throttle(5, "No objects detected.")
 

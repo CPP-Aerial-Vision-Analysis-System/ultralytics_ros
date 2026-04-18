@@ -98,6 +98,7 @@ class MainController(Node):
                     #self.get_logger().info(f"[Param Update] {name} changed")
                     self.fetch_mission_indices()
                     break
+    
 
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
